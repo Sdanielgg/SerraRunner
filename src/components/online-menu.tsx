@@ -10,7 +10,7 @@ type Props = {
 };
 
 export default function OnlineMenu({ visible, status, onClose, onLeave, onConnect }: Props) {
-  const [address, setAddress] = useState(process.env.EXPO_PUBLIC_MULTIPLAYER_URL ?? '');
+  const [address, setAddress] = useState(process.env.EXPO_PUBLIC_MULTIPLAYER_URL?.trim() || 'https://serrarunner.onrender.com');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const busy = status.phase === 'connecting' || status.phase === 'reconnecting';
@@ -38,7 +38,7 @@ export default function OnlineMenu({ visible, status, onClose, onLeave, onConnec
           <Text style={styles.label}>O TEU NOME</Text>
           <TextInput accessibilityLabel="O teu nome online" placeholder="Condutor" value={name} onChangeText={setName} maxLength={20} editable={!busy} style={styles.input} placeholderTextColor="#7b8975" />
           <Text style={styles.label}>SERVIDOR ONLINE</Text>
-          <TextInput accessibilityLabel="Endereço do servidor multiplayer" placeholder="https://serra-runner.onrender.com" value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} keyboardType="url" editable={!busy} style={styles.input} placeholderTextColor="#7b8975" />
+          <TextInput accessibilityLabel="Endereço do servidor multiplayer" placeholder="https://serrarunner.onrender.com" value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} keyboardType="url" editable={!busy} style={styles.input} placeholderTextColor="#7b8975" />
           <Text style={styles.description}>Usa o endereço do servidor publicado. O servidor da sala mantém o mundo e os movimentos sincronizados.</Text>
           <Pressable accessibilityRole="button" disabled={busy || !address.trim()} onPress={() => onConnect({ address, name })} style={[styles.primary, (busy || !address.trim()) && styles.disabled]}><Text style={styles.primaryText}>Criar sala</Text></Pressable>
           <View style={styles.joinRow}>

@@ -10,12 +10,16 @@ import VehicleGarage from './vehicle-garage';
 import OnlineMenu from './online-menu';
 import { createMultiplayerClient, offlineStatus } from '@/game/multiplayer-client';
 import type { RoomSnapshot } from '@/game/network-types';
+import { nearbyEngines } from '@/game/engine-audio';
+import { useEngineSounds } from '@/hooks/use-engine-sounds';
 
 type Scene = ReturnType<typeof createScene>;
 type ControlKey = keyof Controls;
 
 export default function DrivingScene() {
   const insets = useSafeAreaInsets();
+  const { muted, updateSound, unlockSound, toggleSound, releaseSound, silenceSound } = useEngineSounds();
+  const focused = useRef(true);
   const touch = useRef(emptyControls());
   const fingers = useRef(createTouchControls());
   const [pressedControls, setPressedControls] = useState(emptyControls);
@@ -48,8 +52,9 @@ export default function DrivingScene() {
     touch.current = fingers.current.clear(); keyboard.current = emptyControls();
     scene.current?.cancelCameraDrag();
     network.current?.release();
+    releaseSound();
     setPressedControls(touch.current);
-  }, []);
+  }, [releaseSound]);
   const reset = useCallback(() => {
     if (onlineState.current.room && onlineState.current.phase !== 'online') return;
     clearInput();
@@ -69,15 +74,15 @@ export default function DrivingScene() {
     if (mode !== undefined) setCamera(mode);
   }, []);
   const openGarage = useCallback(() => {
-    clearInput(); garageVisible.current = true; setGarageOpen(true);
-  }, [clearInput]);
+    clearInput(); silenceSound(); garageVisible.current = true; setGarageOpen(true);
+  }, [clearInput, silenceSound]);
   const closeGarage = useCallback(() => {
     clearInput(); garageVisible.current = false; setGarageOpen(false);
   }, [clearInput]);
   const openOnlineMenu = useCallback(() => {
-    clearInput(); garageVisible.current = false; setGarageOpen(false);
+    clearInput(); silenceSound(); garageVisible.current = false; setGarageOpen(false);
     onlineMenuVisible.current = true; setOnlineMenuOpen(true);
-  }, [clearInput]);
+  }, [clearInput, silenceSound]);
   const closeOnlineMenu = useCallback(() => {
     clearInput(); onlineMenuVisible.current = false; setOnlineMenuOpen(false);
   }, [clearInput]);
@@ -116,6 +121,7 @@ export default function DrivingScene() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
       running.current = state === 'active'; clearInput();
+      if (!running.current) silenceSound();
     });
     if (Platform.OS !== 'web') return () => subscription.remove();
     const keyMap: Record<string, ControlKey> = { ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right', ArrowUp: 'throttle', w: 'throttle', ArrowDown: 'reverse', s: 'reverse', ' ': 'brake' };
@@ -126,6 +132,7 @@ export default function DrivingScene() {
         return;
       }
       const key = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
+      if (key) unlockSound();
       if (key) { event.preventDefault(); keyboard.current[key] = true; }
       if (event.key.toLowerCase() === 'r' && !event.repeat) reset();
       if (event.key.toLowerCase() === 'l') selectGearing('low');
@@ -140,11 +147,13 @@ export default function DrivingScene() {
       const key = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
       if (key) { event.preventDefault(); keyboard.current[key] = false; }
     };
-    window.addEventListener('keydown', keyDown); window.addEventListener('keyup', keyUp); window.addEventListener('blur', clearInput);
+    const blur = () => { focused.current = false; clearInput(); silenceSound(); };
+    const focus = () => { focused.current = true; };
+    window.addEventListener('keydown', keyDown); window.addEventListener('keyup', keyUp); window.addEventListener('blur', blur); window.addEventListener('focus', focus);
     return () => {
-      subscription.remove(); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('blur', clearInput);
+      subscription.remove(); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('blur', blur); window.removeEventListener('focus', focus);
     };
-  }, [clearInput, reset, selectGearing, startTrail, toggleCamera, openGarage, closeGarage, openOnlineMenu, closeOnlineMenu]);
+  }, [clearInput, reset, selectGearing, startTrail, toggleCamera, openGarage, closeGarage, openOnlineMenu, closeOnlineMenu, unlockSound, silenceSound]);
   useEffect(() => () => { cancelAnimationFrame(animation.current); scene.current?.dispose(); scene.current = null; }, []);
 
   const onContextCreate = useCallback((gl: ExpoWebGLRenderingContext) => {
@@ -164,14 +173,23 @@ export default function DrivingScene() {
             }
             network.current?.setInput(controls, gearingRef.current);
             const info = world.frame(dt, controls, gearingRef.current);
-            if (time - lastUpdate > 120) { setTelemetry(info); lastUpdate = time; }
+            if (time - lastUpdate > 120) {
+              setTelemetry(info); lastUpdate = time;
+              const remote = onlineState.current.phase === 'online' && lastNetworkState.current
+                ? nearbyEngines(lastNetworkState.current.snapshot, lastNetworkState.current.sessionId) : [];
+              updateSound({
+                active: focused.current && !garageVisible.current && !onlineMenuVisible.current && onlineState.current.phase !== 'reconnecting',
+                voices: [{ id: 'self', vehicleId: selectedVehicle.current, speed: info.speed, gearing: gearingRef.current,
+                  accelerating: controls.throttle || controls.reverse, braking: controls.brake, distance: 0, own: true }, ...remote],
+              });
+            }
           }
           animation.current = requestAnimationFrame(frame);
-        } catch (cause) { setError(cause instanceof Error ? cause.message : 'Erro ao desenhar a cena.'); }
+        } catch (cause) { silenceSound(); setError(cause instanceof Error ? cause.message : 'Erro ao desenhar a cena.'); }
       };
       animation.current = requestAnimationFrame(frame); setReady(true);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'O dispositivo não conseguiu iniciar o 3D.'); }
-  }, []);
+    } catch (cause) { silenceSound(); setError(cause instanceof Error ? cause.message : 'O dispositivo não conseguiu iniciar o 3D.'); }
+  }, [updateSound, silenceSound]);
 
   function pedal(control: ControlKey, symbol: string, label: string, accent = false) {
     const press = (identifier: number) => {
@@ -202,7 +220,7 @@ export default function DrivingScene() {
       </View>
     </View>;
   }
-  return <View style={styles.container}>
+  return <View style={styles.container} onTouchStart={unlockSound} onPointerDown={unlockSound}>
     <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} msaaSamples={4} />
     {camera === 2 && <View style={[StyleSheet.absoluteFill, styles.lookSurface]}
       accessibilityLabel="Arrasta para rodar a câmara livre à volta do veículo"
@@ -249,6 +267,7 @@ export default function DrivingScene() {
           </View>
         </View>
         <View style={styles.actions}>
+          <Pressable accessibilityRole="button" accessibilityLabel={muted ? 'Ativar som dos motores' : 'Silenciar motores'} accessibilityState={{ selected: !muted }} onPress={toggleSound} style={styles.action}><Text style={styles.actionText}>{muted ? 'Som: desligado' : 'Som: ligado'}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir multiplayer online" disabled={!ready} onPress={openOnlineMenu} style={styles.action}><Text style={styles.actionText}>{online.room ? 'Sala online' : 'Online'}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir garagem e escolher veículo" disabled={!ready} onPress={openGarage} style={styles.action}><Text style={styles.actionText}>Veículos</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Mudar câmara" onPress={toggleCamera} style={styles.action}><Text style={styles.actionText}>{['Câmara 1', 'Câmara 2', 'Livre · arrastar'][camera]}</Text></Pressable>

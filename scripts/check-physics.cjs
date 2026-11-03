@@ -165,6 +165,118 @@ assert(measuredVehicles.jeep.topSpeed > measuredVehicles.crawler.topSpeed + 20, 
 console.log('Vehicle comparison:', measuredVehicles);
 console.log('Vehicle checks passed: distinct clearance/speed, brakes, Low/High, trail spawns, visual wheel sizes.');
 
+// Check the physical contact independently of the visual terrain correction.
+// On a bank the uphill shoulder touches before the centre of a finite tyre.
+const { Body, Box, Plane, Quaternion, World } = require('cannon-es');
+for (const spec of vehicleList) {
+  // Isolate production collision shapes from the suspension: a sliding belly
+  // loses speed gradually, while a tyre bump stop adds no locked-wheel drag.
+  const donor = createPhysics(spec.id);
+  const { world, chassis } = donor;
+  const hull = chassis.shapes[0]; const tyre = chassis.shapes[2];
+  const tyreOrientation = chassis.shapeOrientations[2].clone();
+  donor.dispose();
+  const sled = new Body({ mass: spec.mass, material: chassis.material, fixedRotation: true, linearDamping: 0 });
+  sled.addShape(hull);
+  sled.position.set(0, 0.18 * spec.heightScale + 0.005, 0); sled.velocity.set(0, 0, -4);
+  world.addBody(sled);
+  const tyreSled = new Body({ mass: spec.mass, material: chassis.material, fixedRotation: true, linearDamping: 0 });
+  tyreSled.addShape(tyre, new Vec3(), tyreOrientation);
+  tyreSled.position.set(10, spec.wheelRadius + 0.005, 0); tyreSled.velocity.set(0, 0, -4);
+  world.addBody(tyreSled);
+  const terrainSled = new Body({ mass: spec.mass, material: chassis.material, fixedRotation: true, linearDamping: 0 });
+  terrainSled.addShape(loadGameModule('chassis-shape').createChassisShape(spec));
+  terrainSled.position.set(-35, 0.18 * spec.heightScale + 0.005, 5); terrainSled.velocity.set(0, 0, -4);
+  world.addBody(terrainSled);
+  for (let tick = 0; tick < 60; tick++) world.step(1 / 60);
+  assert(-sled.velocity.z > 2.8 && sled.position.z < -3.2, `${spec.name}: belly scrapes without stopping abruptly (velocity ${sled.velocity.toString()}, position ${sled.position.toString()}, friction ${world.frictionEquations.map(eq => eq.maxForce)})`);
+  assert(Math.abs(sled.velocity.y) < 0.1, `${spec.name}: scraping bodywork does not bounce off the terrain`);
+  assert(-tyreSled.velocity.z > 3.9, `${spec.name}: rigid tyre stops support the car without duplicating tyre friction`);
+  assert(Math.abs(terrainSled.velocity.z - sled.velocity.z) < 0.1, `${spec.name}: terrain triangles do not multiply scraping friction`);
+
+  const trailScrape = createPhysics(spec.id);
+  trailScrape.reset({ x: -35, y: 1.5, z: -43, yaw: 0 });
+  simulate(trailScrape, 2); simulate(trailScrape, 8, { throttle: true }, 'low');
+  assert(trailScrape.chassis.position.z < -75, `${spec.name}: progresses through the bump section while scraping`);
+  trailScrape.dispose();
+
+  const wallCar = createPhysics(spec.id);
+  wallCar.reset({ x: 0, y: 1.5, z: 0, yaw: 0 });
+  const wall = new Body({ mass: 0, material: wallCar.world.bodies[0].material });
+  const wallShape = new Box(new Vec3(4, 2, 0.2)); wallShape.material = wall.material;
+  wall.addShape(wallShape); wall.position.set(0, 2, -6); wallCar.world.addBody(wall);
+  simulate(wallCar, 2);
+  let hitWall = false;
+  for (let tick = 0; tick < 180; tick++) {
+    wallCar.step(1 / 60, { ...emptyControls(), throttle: true }, 'low');
+    hitWall ||= wallCar.world.contacts.some(contact => (contact.bi === wall && contact.bj === wallCar.chassis) || (contact.bj === wall && contact.bi === wallCar.chassis));
+    assert(wallCar.chassis.position.z > wall.position.z + wallShape.halfExtents.z - 0.05, `${spec.name}: a direct impact remains blocked by a solid wall`);
+  }
+  assert(hitWall, `${spec.name}: solid frontal collision is exercised`);
+  wallCar.dispose();
+}
+console.log('Bumper checks passed: gradual scraping, no extra tyre-stop drag, bump traversal, solid frontal collisions for all vehicles.');
+for (const spec of vehicleList) {
+  for (const bank of [-0.35, 0.35]) for (const steering of [0, 0.3]) {
+    const world = new World({ gravity: new Vec3(0, -9.81, 0) });
+    const ground = new Body({ mass: 0 }); ground.addShape(new Plane());
+    ground.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    const bankRotation = new Quaternion(); bankRotation.setFromEuler(0, 0, bank);
+    bankRotation.mult(ground.quaternion, ground.quaternion); world.addBody(ground);
+    const bankCar = createPhysics(spec.id, world);
+    const wheel = bankCar.vehicle.wheelInfos[0];
+    const normal = new Vec3(-Math.sin(bank), Math.cos(bank), 0);
+    const axle = new Vec3(-Math.cos(steering), 0, Math.sin(steering));
+    const axleDot = normal.dot(axle);
+    const support = spec.wheelRadius * Math.sqrt(1 - axleDot * axleDot) + spec.wheelWidth / 2 * Math.abs(axleDot);
+    const expectedLength = spec.suspensionRest * 0.65;
+    bankCar.reset({ x: 0, y: 2, z: 0, yaw: 0 });
+    bankCar.chassis.position.y = Math.tan(bank) * wheel.chassisConnectionPointLocal.x + support / normal.y + expectedLength;
+    bankCar.vehicle.setSteeringValue(steering, 0);
+    bankCar.vehicle.castRay(wheel);
+    assert(wheel.isInContact, `${spec.name}: tilted tyre maintains contact with the bank`);
+    assert(Math.abs(wheel.suspensionLength - expectedLength) < 0.012, `${spec.name}: suspension accounts for tyre width and steering on both sides of a bank`);
+    assert.equal(bankCar.chassis.collisionResponse, true, 'Contact queries restore chassis collisions');
+    bankCar.dispose();
+  }
+}
+function lowestTyreClearance(poses, spec) {
+  let lowest = Infinity;
+  for (const pose of poses) for (const across of [-0.5, 0, 0.5]) for (let i = 0; i < 48; i++) {
+    const angle = i * Math.PI / 24;
+    const point = pose.quaternion.vmult(new Vec3(across * spec.wheelWidth, spec.wheelRadius * Math.cos(angle), spec.wheelRadius * Math.sin(angle))).vadd(pose.position);
+    lowest = Math.min(lowest, point.y - terrainHeightAt(point.x, point.z));
+  }
+  return lowest;
+}
+for (const spec of vehicleList) for (const fps of [30, 60, 144]) {
+  for (const [x, z] of [[-22, -86], [-35, -56]]) {
+    const tiltedCar = createPhysics(spec.id);
+    tiltedCar.reset({ x, z, y: terrainHeightAt(x, z) + 2, yaw: Math.PI / 2 });
+    for (let frame = 0; frame < fps * 3; frame++) {
+      tiltedCar.step(1 / fps, { ...emptyControls(), brake: true });
+      const displayedClearance = lowestTyreClearance(tiltedCar.getWheelTransforms(), spec);
+      assert(displayedClearance > -0.02, `${spec.name}: interpolated tyres stay above banks and crests at ${fps} fps (frame ${frame}, ${x}, ${z}, clearance ${displayedClearance})`);
+      assert(lowestTyreClearance(tiltedCar.getWheelTransforms(false), spec) > -0.02, `${spec.name}: server wheel poses stay above banks and crests`);
+    }
+    tiltedCar.dispose();
+  }
+}
+for (const spec of vehicleList) for (const roll of [-Math.PI / 2, Math.PI / 2]) {
+  for (const left of [false, true]) {
+    const rolledCar = createPhysics(spec.id);
+    rolledCar.reset({ x: 0, y: 2, z: 0, yaw: 0 });
+    rolledCar.chassis.quaternion.setFromEuler(0, 0, roll);
+    simulate(rolledCar, 3, { brake: true, left });
+    for (let tick = 0; tick < 60; tick++) {
+      rolledCar.step(1 / 60, { ...emptyControls(), brake: true, left });
+      assert(lowestTyreClearance(rolledCar.getWheelTransforms(false), spec) > -0.025, `${spec.name}: tyre colliders support the vehicle on either side, including with steering`);
+    }
+    rolledCar.dispose();
+  }
+}
+console.log('Uneven terrain checks passed: physical tyre width, bank contact with steering, crests, rollover tyre collisions, local/server poses at 30/60/144 fps.');
+
 // Exercise real scene objects and vehicle swaps without requiring a GPU in CI.
 let renderedScene;
 class TestRenderer {
@@ -215,6 +327,33 @@ assert(renderedScene.children.some(object => object.name === 'Vale Rally' && obj
 testScene.setNetworkSnapshot({ version: 1, tick: 12, players: [networkPlayer('own', 'rally', -35, 2)] }, 'own');
 testScene.frame(1 / 60, emptyControls());
 assert(!renderedScene.children.some(object => object.name === 'Rocha Crawler'), 'Remote vehicle is removed after leaving');
+// Contacts on opposite sides of a crest interpolate below its peak.
+testScene.leaveNetwork('jeep');
+const realNow = Date.now;
+let networkTime = 1000;
+Date.now = () => networkTime;
+try {
+  for (const z of [-88.5, -89.5]) {
+    const player = networkPlayer('own', 'jeep', -35, 5);
+    player.body.position = { x: -35, y: 8, z };
+    player.wheels.forEach(wheel => {
+      wheel.position = { x: -35, y: terrainHeightAt(-35, z) + vehicleList[0].wheelRadius + 0.008, z };
+      wheel.quaternion = { x: 0, y: 0, z: 0, w: 1 };
+    });
+    testScene.setNetworkSnapshot({ version: 1, tick: networkTime, players: [player] }, 'own');
+    networkTime += 100;
+  }
+  networkTime = 1130; // Render time is 80 ms earlier: halfway between snapshots.
+  testScene.frame(1 / 60, emptyControls());
+  const model = renderedScene.children.find(object => object.name === vehicleList[0].name);
+  assert(Math.abs(model.position.z + 89) < 1e-6, 'Online regression test renders the middle of the crest');
+  const wheels = renderedScene.children.filter(object => object.children[0]?.geometry?.type === 'CylinderGeometry');
+  assert.equal(wheels.length, 4, 'Online regression test inspects all displayed tyres');
+  const poses = wheels.map(wheel => ({ position: wheel.position, quaternion: new Quaternion(wheel.quaternion.x, wheel.quaternion.y, wheel.quaternion.z, wheel.quaternion.w) }));
+  assert(lowestTyreClearance(poses, vehicleList[0]) > -0.02, 'Online interpolation keeps tyres above the crest');
+} finally {
+  Date.now = realNow;
+}
 testScene.leaveNetwork('jeep'); testScene.frame(1 / 60, emptyControls());
 assert.equal(renderedScene.children.filter(object => vehicleList.some(spec => object.name === spec.name)).length, 1, 'Leaving multiplayer restores one local vehicle');
 testScene.dispose();

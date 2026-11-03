@@ -17,7 +17,7 @@ O plano Free pode suspender o serviço quando está inativo. No primeiro acesso,
 
 ## Configurar o endereço por defeito
 
-O campo Servidor Online permite testar sem recompilar. Para o preencher automaticamente, copia `.env.example` para `.env.local`, troca o endereço pelo teu e reinicia o Expo. Em builds distribuídas, define `EXPO_PUBLIC_MULTIPLAYER_URL` durante o build. Esta variável é pública e não deve conter credenciais.
+O menu Online usa `https://serrarunner.onrender.com` por defeito. O campo Servidor Online permite trocar o endereço sem recompilar. Para configurar outro endereço por defeito, copia `.env.example` para `.env.local`, troca o endereço pelo teu e reinicia o Expo. Em builds distribuídas, define `EXPO_PUBLIC_MULTIPLAYER_URL` durante o build. Esta variável é pública e não deve conter credenciais.
 
 O jogo também tem de estar disponível para os teus amigos: podes distribuir uma build mobile ou alojar a versão web. O servidor multiplayer e o servidor de desenvolvimento Expo são serviços diferentes; o endereço da sala deve apontar para o servidor Node, não para o Metro.
 
@@ -26,9 +26,11 @@ O jogo também tem de estar disponível para os teus amigos: podes distribuir um
 Requer Node 22.13+ (testado com Node 24).
 
 ```sh
-npm ci
+npm run setup
 npm run server:dev
 ```
+
+`npm run setup` prepara todo o projeto após o clone: instala as dependências do lockfile, verifica TypeScript e compila servidor + web. Para compilar novamente sem reinstalar usa `npm run build`. No Render, mantém o comando de build específico do servidor (`npm ci --include=dev && npm run server:build`), porque o serviço multiplayer não precisa de gerar a versão web.
 
 Noutro terminal:
 

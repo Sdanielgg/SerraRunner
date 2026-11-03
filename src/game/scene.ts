@@ -5,6 +5,7 @@ import { Controls, createPhysics, type Gearing } from './physics';
 import { createOrbitCamera } from './orbit-camera';
 import { terrainHeightAt, terrainHeights, trail } from './terrain';
 import { vehicles, type VehicleId } from './vehicles';
+import { fitWheelToTerrain } from './wheel-terrain';
 import type { PlayerSnapshot, Pose, RoomSnapshot } from './network-types';
 
 export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: VehicleId = 'jeep') {
@@ -119,7 +120,12 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
   function updateModel(model: ReturnType<typeof createJeep>, from: PlayerSnapshot, to: PlayerSnapshot, alpha: number) {
     if (from.revision !== to.revision || from.vehicleId !== to.vehicleId) { from = to; alpha = 1; }
     pose(model.body, from.body, to.body, alpha);
-    model.wheels.forEach((wheel, i) => { if (from.wheels[i] && to.wheels[i]) pose(wheel, from.wheels[i], to.wheels[i], alpha); });
+    const spec = vehicles[to.vehicleId];
+    model.wheels.forEach((wheel, i) => {
+      if (!from.wheels[i] || !to.wheels[i]) return;
+      pose(wheel, from.wheels[i], to.wheels[i], alpha);
+      fitWheelToTerrain(wheel.position, wheel.quaternion, model.body.quaternion, spec.wheelRadius, spec.wheelWidth);
+    });
   }
   function renderOnline() {
     if (!snapshots.length) return onlineTelemetry;

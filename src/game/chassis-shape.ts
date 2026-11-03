@@ -5,8 +5,8 @@ export function createChassisShape(spec: VehicleSpec) {
   // Keep the belly clearance, but slope the underside up to both bumpers.
   // A full-length box leaves a low vertical lip that catches shallow obstacles.
   const profile = [
-    [-0.18, -1.15], [-0.18, 1.15], [-0.04, 1.82],
-    [0.42, 1.82], [0.42, -1.82], [-0.04, -1.82],
+    [-(spec.bellyDepth ?? 0.18), -1.15], [-(spec.bellyDepth ?? 0.18), 1.15], [-(spec.bumperDepth ?? 0.04), 1.82],
+    [0.42, 1.82], [0.42, -1.82], [-(spec.bumperDepth ?? 0.04), -1.82],
   ];
   const vertices = [-1, 1].flatMap(side => profile.map(([y, z]) =>
     new Vec3(side * 0.86 * spec.widthScale, y * spec.heightScale, z * spec.lengthScale)));

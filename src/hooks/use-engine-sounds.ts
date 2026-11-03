@@ -7,6 +7,7 @@ const sources = {
   jeep: require('../../assets/audio/engine-jeep.wav'),
   crawler: require('../../assets/audio/engine-crawler.wav'),
   rally: require('../../assets/audio/engine-rally.wav'),
+  gt3: require('../../assets/audio/engine-gt3.wav'),
 };
 const playerOptions = { updateInterval: 1000, preferredForwardBufferDuration: 16, allowsExternalPlayback: false };
 
@@ -20,13 +21,14 @@ export function useEngineSounds() {
   useEffect(() => {
     let mounted = true;
     void Promise.all([
-      Asset.loadAsync([sources.jeep, sources.crawler, sources.rally]),
+      Asset.loadAsync([sources.jeep, sources.crawler, sources.rally, sources.gt3]),
       setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false, shouldPlayInBackground: false, interruptionMode: 'mixWithOthers' }),
     ]).then(([assets]) => {
       if (mounted) mixer.setSources({
         jeep: { uri: assets[0].localUri ?? assets[0].uri },
         crawler: { uri: assets[1].localUri ?? assets[1].uri },
         rally: { uri: assets[2].localUri ?? assets[2].uri },
+        gt3: { uri: assets[3].localUri ?? assets[3].uri },
       });
     })
       .catch(error => { if (mounted) console.warn('Não foi possível configurar o som dos motores.', error); });

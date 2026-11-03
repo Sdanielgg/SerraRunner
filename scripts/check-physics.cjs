@@ -135,7 +135,7 @@ for (const spec of vehicleList) {
   const testCar = createPhysics(spec.id);
   simulate(testCar, 3);
   assert.equal(testCar.vehicle.numWheelsOnGround, 4, `${spec.name}: suspension supports all four wheels`);
-  const clearance = testCar.chassis.position.y - 0.18 * spec.heightScale;
+  const clearance = testCar.chassis.position.y - (spec.bellyDepth ?? 0.18) * spec.heightScale;
   assert(Math.abs(clearance - groundClearance(spec)) < 0.06, `${spec.name}: garage clearance matches the settled physics`);
   const topSpeed = simulate(testCar, 6, { throttle: true }).speed;
   assert(Math.abs(topSpeed - spec.high.forwardLimit * 3.6) < 2, `${spec.name}: reaches its own High speed limit`);
@@ -162,8 +162,34 @@ assert(measuredVehicles.crawler.clearance > measuredVehicles.jeep.clearance + 0.
 assert(measuredVehicles.jeep.clearance > measuredVehicles.rally.clearance + 0.2, 'Rally sacrifices ground clearance');
 assert(measuredVehicles.rally.topSpeed > measuredVehicles.jeep.topSpeed + 25, 'Rally is meaningfully faster');
 assert(measuredVehicles.jeep.topSpeed > measuredVehicles.crawler.topSpeed + 20, 'Crawler sacrifices top speed');
+assert(measuredVehicles.gt3.topSpeed > measuredVehicles.rally.topSpeed + 40, 'GT3 has a distinct circuit top speed');
+assert(measuredVehicles.gt3.clearance < measuredVehicles.rally.clearance - 0.1, 'GT3 trades ground clearance for its circuit setup');
 console.log('Vehicle comparison:', measuredVehicles);
 console.log('Vehicle checks passed: distinct clearance/speed, brakes, Low/High, trail spawns, visual wheel sizes.');
+
+let gt3Reference;
+for (const fps of [30, 60, 120, 144]) {
+  const gt3 = createPhysics('gt3'); simulate(gt3, 3);
+  const restingHeight = gt3.chassis.position.y;
+  const endTick = gt3.world.stepnumber + 180;
+  while (gt3.world.stepnumber < endTick) gt3.step(1 / fps, { ...emptyControls(), throttle: true });
+  assert(gt3.chassis.position.y < restingHeight - 0.004, 'GT3 downforce loads the suspension as speed increases');
+  if (!gt3Reference) gt3Reference = { position: gt3.chassis.position.clone(), velocity: gt3.chassis.velocity.clone() };
+  else {
+    assert(gt3.chassis.position.distanceTo(gt3Reference.position) < 0.01, `GT3 aerodynamics stay consistent at ${fps} fps`);
+    assert(gt3.chassis.velocity.distanceTo(gt3Reference.velocity) < 0.01, `GT3 acceleration stays consistent at ${fps} fps`);
+  }
+  const oldBody = gt3.chassis; gt3.dispose(); gt3.world.step(1 / 60);
+  assert.equal(oldBody.force.length(), 0, 'Removing the GT3 also removes its aerodynamic force callback');
+}
+const airborneGT3 = createPhysics('gt3'); const airborneJeep = createPhysics();
+for (const airborne of [airborneGT3, airborneJeep]) {
+  airborne.reset({ x: 0, y: 10, z: 0, yaw: 0 }); airborne.chassis.velocity.set(0, 0, -30);
+  simulate(airborne, 1);
+}
+assert(Math.abs(airborneGT3.chassis.velocity.y - airborneJeep.chassis.velocity.y) < 1e-6, 'Airborne GT3 falls under gravity without artificial downforce');
+airborneGT3.dispose(); airborneJeep.dispose();
+console.log('GT3 checks passed: circuit speed/clearance tradeoff, grounded downforce, frame-rate consistency, airborne behaviour, callback cleanup.');
 
 // Check the physical contact independently of the visual terrain correction.
 // On a bank the uphill shoulder touches before the centre of a finite tyre.
@@ -178,7 +204,7 @@ for (const spec of vehicleList) {
   donor.dispose();
   const sled = new Body({ mass: spec.mass, material: chassis.material, fixedRotation: true, linearDamping: 0 });
   sled.addShape(hull);
-  sled.position.set(0, 0.18 * spec.heightScale + 0.005, 0); sled.velocity.set(0, 0, -4);
+  sled.position.set(0, (spec.bellyDepth ?? 0.18) * spec.heightScale + 0.005, 0); sled.velocity.set(0, 0, -4);
   world.addBody(sled);
   const tyreSled = new Body({ mass: spec.mass, material: chassis.material, fixedRotation: true, linearDamping: 0 });
   tyreSled.addShape(tyre, new Vec3(), tyreOrientation);
@@ -186,7 +212,7 @@ for (const spec of vehicleList) {
   world.addBody(tyreSled);
   const terrainSled = new Body({ mass: spec.mass, material: chassis.material, fixedRotation: true, linearDamping: 0 });
   terrainSled.addShape(loadGameModule('chassis-shape').createChassisShape(spec));
-  terrainSled.position.set(-35, 0.18 * spec.heightScale + 0.005, 5); terrainSled.velocity.set(0, 0, -4);
+  terrainSled.position.set(-35, (spec.bellyDepth ?? 0.18) * spec.heightScale + 0.005, 5); terrainSled.velocity.set(0, 0, -4);
   world.addBody(terrainSled);
   for (let tick = 0; tick < 60; tick++) world.step(1 / 60);
   assert(-sled.velocity.z > 2.8 && sled.position.z < -3.2, `${spec.name}: belly scrapes without stopping abruptly (velocity ${sled.velocity.toString()}, position ${sled.position.toString()}, friction ${world.frictionEquations.map(eq => eq.maxForce)})`);
@@ -320,7 +346,7 @@ for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) {
   const first = raceSpawn(a); const second = raceSpawn(b);
   assert(Math.hypot(first.x - second.x, first.z - second.z) > 5, 'Four-player grid spaces vehicles safely apart');
 }
-console.log(`Race circuit checks passed: ${Math.round(raceLength)} m lap, barrier geometry, four grid slots, full clean laps with all three vehicles.`);
+console.log(`Race circuit checks passed: ${Math.round(raceLength)} m lap, barrier geometry, four grid slots, full clean laps with all ${vehicleList.length} vehicles.`);
 
 // Exercise real scene objects and vehicle swaps without requiring a GPU in CI.
 let renderedScene;
@@ -339,19 +365,20 @@ assert(renderedScene.children.some(object => object.name === 'Circuito da Serra'
 testScene.startRace(); testScene.frame(1 / 60, emptyControls());
 assert(renderedScene.children.some(object => object.name === 'Serra 4×4' && object.position.x > 60), 'Circuit action moves the current model to the grid');
 let disposedModels = 0;
-for (const id of ['crawler', 'rally', 'jeep', 'crawler']) {
+for (const id of ['crawler', 'rally', 'gt3', 'jeep', 'gt3', 'crawler']) {
   renderedScene.traverse(object => {
-    if (object.name === 'Serra 4×4' || object.name === 'Rocha Crawler' || object.name === 'Vale Rally') {
+    if (vehicleList.some(spec => object.name === spec.name)) {
       object.traverse(part => part.geometry?.addEventListener('dispose', () => { disposedModels++; }));
     }
   });
   const previousDisposals = disposedModels;
-  testScene.setVehicle(id, id === 'rally' ? 'race' : 'trail');
+  testScene.setVehicle(id, id === 'rally' || id === 'gt3' ? 'race' : 'trail');
   testScene.frame(1 / 60, emptyControls(), 'low');
   assert(disposedModels > previousDisposals, 'Switching vehicle releases the previous model geometry');
   assert.equal(renderedScene.children.filter(object => vehicleList.some(spec => object.name === spec.name)).length, 1, 'Only the selected vehicle remains in the scene');
   assert(renderedScene.children.some(object => object.name === vehicleList.find(spec => spec.id === id).name), 'Scene displays the selected vehicle');
   if (id === 'rally') assert(renderedScene.children.some(object => object.name === 'Vale Rally' && object.position.x > 60), 'Garage vehicle changes can enter the racing circuit');
+  if (id === 'gt3') assert(renderedScene.children.some(object => object.name === 'Serra GT3' && object.position.x > 60), 'GT3 renders at the circuit after a vehicle change');
 }
 assert.equal(testScene.toggleCamera(), 1); assert.equal(testScene.toggleCamera(), 2);
 testScene.setVehicle('rally', 'garage');
@@ -370,10 +397,10 @@ function networkPlayer(id, vehicleId, x, revision = 1) {
 testScene.setNetworkSnapshot({ version: 1, tick: 10, players: [networkPlayer('own', 'jeep', 0), networkPlayer('friend', 'crawler', 8)] }, 'own');
 testScene.frame(1 / 60, emptyControls());
 assert(renderedScene.children.some(object => object.name === 'Rocha Crawler' && object.position.x === 8), 'Remote vehicle renders from server snapshots');
-testScene.setNetworkSnapshot({ version: 1, tick: 11, players: [networkPlayer('own', 'rally', -35, 2), networkPlayer('friend', 'crawler', 8)] }, 'own');
+testScene.setNetworkSnapshot({ version: 1, tick: 11, players: [networkPlayer('own', 'gt3', -35, 2), networkPlayer('friend', 'crawler', 8)] }, 'own');
 testScene.frame(1 / 60, emptyControls());
-assert(renderedScene.children.some(object => object.name === 'Vale Rally' && object.position.x === -35), 'Vehicle changes and teleports do not interpolate through the map');
-testScene.setNetworkSnapshot({ version: 1, tick: 12, players: [networkPlayer('own', 'rally', -35, 2)] }, 'own');
+assert(renderedScene.children.some(object => object.name === 'Serra GT3' && object.position.x === -35), 'GT3 changes and teleports do not interpolate through the map');
+testScene.setNetworkSnapshot({ version: 1, tick: 12, players: [networkPlayer('own', 'gt3', -35, 2)] }, 'own');
 testScene.frame(1 / 60, emptyControls());
 assert(!renderedScene.children.some(object => object.name === 'Rocha Crawler'), 'Remote vehicle is removed after leaving');
 // Contacts on opposite sides of a crest interpolate below its peak.

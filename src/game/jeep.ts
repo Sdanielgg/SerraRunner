@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { vehicles, type VehicleSpec } from './vehicles';
+import { addGT3Body } from './gt3-model';
 
 export function createJeep(spec: VehicleSpec = vehicles.jeep) {
   const body = new THREE.Group();
@@ -16,7 +17,9 @@ export function createJeep(spec: VehicleSpec = vehicles.jeep) {
     mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true; body.add(mesh);
     return mesh;
   }
-  if (spec.id === 'rally') {
+  if (spec.id === 'gt3') {
+    addGT3Body(body, { paint, dark, metal, glass, lamp, red });
+  } else if (spec.id === 'rally') {
     const stripe = new THREE.MeshStandardMaterial({ color: '#f5e5c6', roughness: 0.7 });
     box(1.75, 0.44, 3.3, 0, 0.2, 0);
     box(1.65, 0.22, 1.2, 0, 0.51, -1.02);
@@ -73,14 +76,20 @@ export function createJeep(spec: VehicleSpec = vehicles.jeep) {
     const group = new THREE.Group();
     const tire = new THREE.Mesh(new THREE.CylinderGeometry(spec.wheelRadius, spec.wheelRadius, spec.wheelWidth, 12), rubber);
     tire.rotation.z = Math.PI / 2; tire.castShadow = true; group.add(tire);
-    const hubRadius = spec.wheelRadius * (spec.id === 'rally' ? 0.68 : 0.52);
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(hubRadius, hubRadius, spec.wheelWidth + 0.017, 6), metal);
+    const hubRadius = spec.wheelRadius * (spec.id === 'rally' || spec.id === 'gt3' ? 0.68 : 0.52);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(hubRadius, hubRadius, spec.wheelWidth + 0.017, 6), spec.id === 'gt3' ? dark : metal);
     hub.rotation.z = Math.PI / 2; group.add(hub);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(spec.wheelRadius * 0.24, spec.wheelRadius * 0.24, spec.wheelWidth + 0.03, 6), dark);
     cap.rotation.z = Math.PI / 2; group.add(cap);
+    if (spec.id === 'gt3') for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3;
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(spec.wheelWidth + 0.022, hubRadius * 0.8, 0.025), metal);
+      spoke.position.set(0, Math.cos(angle) * hubRadius * 0.48, Math.sin(angle) * hubRadius * 0.48);
+      spoke.rotation.x = angle; group.add(spoke);
+    }
     return group;
   }
-  if (spec.id !== 'rally') {
+  if (spec.id === 'jeep' || spec.id === 'crawler') {
     const spare = wheel(); spare.rotation.y = Math.PI / 2; spare.position.set(0, 0.78, 1.83); body.add(spare);
   }
   body.scale.set(spec.widthScale, spec.heightScale, spec.lengthScale);

@@ -40,13 +40,13 @@ async function run() {
     first.onMessage('snapshot', state => { latest = state; });
     first.onMessage('pong', () => {});
     assert.match(first.roomId, /^[A-F0-9]{8}$/, 'Invite code has eight characters');
-    for (const [name, vehicleId] of [['Bruno', 'crawler'], ['Carla', 'rally'], ['Diogo', 'jeep']]) {
+    for (const [name, vehicleId] of [['Bruno', 'crawler'], ['Carla', 'rally'], ['Diogo', 'gt3']]) {
       const room = await client.joinById(first.roomId, { ...options, name, vehicleId }); rooms.push(room);
       room.onMessage('snapshot', () => {});
     }
     await waitFor(() => latest?.players.length === 4, 'four synchronized players');
     assert.equal(new Set(latest.players.map(player => player.body.position.x)).size, 4, 'Players spawn in separate slots');
-    assert.deepEqual(new Set(latest.players.map(player => player.vehicleId)), new Set(['jeep', 'crawler', 'rally']));
+    assert.deepEqual(new Set(latest.players.map(player => player.vehicleId)), new Set(['jeep', 'crawler', 'rally', 'gt3']));
     const gridRevisions = new Map(latest.players.map(player => [player.id, player.revision]));
     for (const room of rooms) room.send('reset', 'race');
     await waitFor(() => latest.players.every(player => player.revision > gridRevisions.get(player.id) && player.body.position.x > 60 && player.body.position.x < 80), 'four players reach the race grid');
@@ -68,6 +68,12 @@ async function run() {
 
     let seq = 0;
     const own = () => latest.players.find(player => player.id === first.sessionId);
+    let hornPeer;
+    rooms[1].onMessage('snapshot', snapshot => { hornPeer = snapshot; });
+    first.send('input', { seq: ++seq, controls: emptyControls(), gearing: 'high', horn: true, hornTone: 'low' });
+    await waitFor(() => own().horn && hornPeer?.players.find(player => player.id === first.sessionId)?.horn, 'horn reaches another client');
+    assert.equal(hornPeer.players.find(player => player.id === first.sessionId).hornTone, 'low', 'Selected horn tone is synchronized');
+    await waitFor(() => !own().horn, 'stale horn input is released automatically', 2000);
     const start = { ...own().body.position };
     inputTimer = setInterval(() => first.send('input', { seq: ++seq, controls: { ...emptyControls(), throttle: true }, gearing: 'high', position: { x: 99999, y: 99999, z: 99999 } }), 40);
     await waitFor(() => own().speed > 18, 'server applies commands');
@@ -91,14 +97,24 @@ async function run() {
     await waitFor(() => status.phase === 'online' && networkSnapshot?.players.length === 4, 'app client joins a room');
     const session = status.room.sessionId;
     controller.setInput({ ...emptyControls(), throttle: true }, 'low');
+    controller.setHorn(true, 'high');
+    await waitFor(() => networkSnapshot.players.find(player => player.id === session)?.horn, 'app client holds its horn');
+    assert.equal(networkSnapshot.players.find(player => player.id === session).hornTone, 'high');
     await waitFor(() => networkSnapshot.players.find(player => player.id === session)?.speed > 10, 'app client sends held controls');
     controller.release();
+    await waitFor(() => !networkSnapshot.players.find(player => player.id === session)?.horn, 'releasing controls stops the horn');
+    controller.setHorn(true, 'low');
+    await waitFor(() => networkSnapshot.players.find(player => player.id === session)?.horn, 'horn is held before disconnection');
     const serverRoom = matchMaker.getLocalRoomById(first.roomId);
     serverRoom.clients.getById(session).ref.terminate();
     await waitFor(() => phases.includes('reconnecting'), 'automatic reconnect begins');
+    await waitFor(() => !latest.players.find(player => player.id === session)?.horn, 'disconnect releases a held horn');
     await waitFor(() => status.phase === 'online' && status.room.sessionId === session && status.room.players.length === 4, 'automatic reconnect preserves the player', 10000);
-    controller.selectVehicle('rally', 'garage');
-    await waitFor(() => networkSnapshot.players.find(player => player.id === session)?.vehicleId === 'rally', 'app client can change its vehicle');
+    assert.equal(networkSnapshot.players.find(player => player.id === session)?.horn, false, 'Reconnection does not leave a horn stuck on');
+    controller.selectVehicle('gt3', 'race');
+    await waitFor(() => networkSnapshot.players.find(player => player.id === session)?.vehicleId === 'gt3', 'app client can select the GT3');
+    const gt3 = networkSnapshot.players.find(player => player.id === session);
+    assert(gt3.body.position.x > 60 && gt3.gearing === 'high', 'GT3 spawns on the circuit in High');
     controller.leave();
     await waitFor(() => latest.players.length === 3, 'app client leaves cleanly');
     assert.equal(status.phase, 'offline');

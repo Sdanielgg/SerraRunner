@@ -2,7 +2,7 @@ import type { EnginePlayer, EngineSource } from './engine-audio';
 
 // In-memory audio keeps looping independently of rendering and DOM media events.
 // Parameter ramps run on the audio clock, rather than changing pitch in steps.
-export function createWebEnginePlayer(context: AudioContext, buffers: Map<string, AudioBuffer>): EnginePlayer & { dispose(): void } {
+export function createWebEnginePlayer(context: AudioContext, buffers: Map<string, AudioBuffer>, options: { gainRamp?: number; pitchRamp?: number } = {}): EnginePlayer & { dispose(): void } {
   const gain = context.createGain();
   gain.gain.value = 0; gain.connect(context.destination);
   let source: AudioBufferSourceNode | null = null;
@@ -27,10 +27,10 @@ export function createWebEnginePlayer(context: AudioContext, buffers: Map<string
     get loop() { return loop; },
     set loop(value) { loop = value; if (source) source.loop = value; },
     get volume() { return volume; },
-    set volume(value) { volume = Math.max(0, Math.min(1, value)); if (playing) ramp(gain.gain, volume, 0.08); },
+    set volume(value) { volume = Math.max(0, Math.min(1, value)); if (playing) ramp(gain.gain, volume, options.gainRamp ?? 0.08); },
     setPlaybackRate(value) {
       rate = Math.max(0.5, Math.min(2, value));
-      if (source) ramp(source.playbackRate, rate, 0.14);
+      if (source) ramp(source.playbackRate, rate, options.pitchRamp ?? 0.14);
     },
     replace(next: EngineSource) {
       if (source) { retire(source); source = null; }
@@ -44,7 +44,7 @@ export function createWebEnginePlayer(context: AudioContext, buffers: Map<string
         source.playbackRate.setValueAtTime(rate, context.currentTime);
         source.connect(gain); source.start();
       }
-      playing = true; ramp(gain.gain, volume, 0.08);
+      playing = true; ramp(gain.gain, volume, options.gainRamp ?? 0.08);
     },
     pause() {
       // Keep the source phase intact while fading out; resuming never reloads it.

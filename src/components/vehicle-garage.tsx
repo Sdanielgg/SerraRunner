@@ -15,7 +15,7 @@ export default function VehicleGarage({ visible, current, onClose, onTest }: Pro
       <View style={styles.panel}>
         <View style={styles.header}>
           <View style={styles.heading}>
-            <Text style={styles.eyebrow}>GARAGEM / 3 VEÍCULOS</Text>
+            <Text style={styles.eyebrow}>GARAGEM / {vehicleList.length} VEÍCULOS</Text>
             <Text style={styles.title}>Escolhe o teu caminho.</Text>
             <Text style={styles.subtitle}>Compara a altura ao solo e a velocidade. Testa todos no mesmo percurso.</Text>
           </View>

@@ -2,6 +2,7 @@ import { Client, type Room } from 'colyseus.js';
 import { emptyControls, type Controls, type Gearing } from './physics';
 import { MAX_PLAYERS, NETWORK_VERSION, ROOM_NAME, serverAddress, type RoomInfo, type RoomSnapshot, type TestLocation } from './network-types';
 import type { VehicleId } from './vehicles';
+import type { HornTone } from './horn-audio';
 
 export type OnlineStatus = {
   phase: 'offline' | 'connecting' | 'online' | 'reconnecting' | 'error';
@@ -17,6 +18,7 @@ export function createMultiplayerClient(onStatus: (status: OnlineStatus) => void
   let generation = 0;
   let seq = 0;
   let controls = emptyControls(); let gearing: Gearing = 'high';
+  let horn = false; let hornTone: HornTone = 'auto';
   let inputTimer: ReturnType<typeof setInterval> | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -29,7 +31,7 @@ export function createMultiplayerClient(onStatus: (status: OnlineStatus) => void
     inputTimer = pingTimer = null; reconnectTimer = null;
   }
   function sendInput() {
-    if (room?.connection.isOpen) room.send('input', { seq: ++seq, controls, gearing });
+    if (room?.connection.isOpen) room.send('input', { seq: ++seq, controls, gearing, horn, hornTone });
   }
   async function timedJoin(promise: Promise<Room>, token: number) {
     let timeout: ReturnType<typeof setTimeout>;
@@ -43,7 +45,7 @@ export function createMultiplayerClient(onStatus: (status: OnlineStatus) => void
   }
   function attach(joined: Room, token: number) {
     if (token !== generation) { void joined.leave().catch(() => {}); return; }
-    room = joined; seq = 0; controls = emptyControls(); latestSnapshot = Date.now();
+    room = joined; seq = 0; controls = emptyControls(); horn = false; latestSnapshot = Date.now();
     publish({ phase: 'online', message: '', room: { code: joined.roomId, sessionId: joined.sessionId, players: [] } });
     joined.onMessage<RoomSnapshot>('snapshot', snapshot => {
       if (room !== joined || token !== generation || snapshot.version !== NETWORK_VERSION || !Array.isArray(snapshot.players) || snapshot.players.length > MAX_PLAYERS) return;
@@ -57,7 +59,7 @@ export function createMultiplayerClient(onStatus: (status: OnlineStatus) => void
     joined.onLeave(() => {
       if (room !== joined || token !== generation) return;
       const reconnectToken = joined.reconnectionToken;
-      room = null; clearTimers(); controls = emptyControls();
+      room = null; clearTimers(); controls = emptyControls(); horn = false;
       publish({ phase: 'reconnecting', message: 'Ligação interrompida. A tentar voltar à sala…', ping: null });
       let attempt = 0;
       const reconnect = async () => {
@@ -99,20 +101,24 @@ export function createMultiplayerClient(onStatus: (status: OnlineStatus) => void
       }
     },
     setInput(next: Controls, range: Gearing) { controls = { ...next }; gearing = range; },
-    release() { controls = emptyControls(); sendInput(); },
+    setHorn(active: boolean, tone: HornTone) {
+      if (horn === active && hornTone === tone) return;
+      horn = active; hornTone = tone; sendInput();
+    },
+    release() { controls = emptyControls(); horn = false; sendInput(); },
     selectVehicle(vehicleId: VehicleId, location: TestLocation) {
-      controls = emptyControls(); gearing = location === 'trail' ? 'low' : 'high';
+      controls = emptyControls(); horn = false; gearing = location === 'trail' ? 'low' : 'high';
       room?.send('vehicle', { vehicleId, location });
     },
-    reset(location: TestLocation) { controls = emptyControls(); gearing = location === 'trail' ? 'low' : 'high'; room?.send('reset', location); },
+    reset(location: TestLocation) { controls = emptyControls(); horn = false; gearing = location === 'trail' ? 'low' : 'high'; room?.send('reset', location); },
     leave() {
-      generation++; clearTimers(); controls = emptyControls();
+      generation++; clearTimers(); controls = emptyControls(); horn = false;
       const old = room; room = null;
       if (old) void old.leave().catch(() => {});
       publish(offlineStatus());
     },
     dispose() {
-      generation++; clearTimers();
+      generation++; clearTimers(); horn = false;
       const old = room; room = null;
       if (old) void old.leave().catch(() => {});
     },

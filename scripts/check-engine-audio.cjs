@@ -21,7 +21,7 @@ for (let i = 0; i < 4; i++) voices.push({
   play() { this.playing = true; this.playCalls++; }, pause() { this.playing = false; },
   replace(source) { this.source = source; this.replaceCalls++; }, setPlaybackRate(rate) { this.rate = rate; this.rateCalls++; },
 });
-const mixer = createEngineMixer(voices, { jeep: 1, crawler: 2, rally: 3 });
+const mixer = createEngineMixer(voices, { jeep: 1, crawler: 2, rally: 3, gt3: 4 });
 const idle = { id: 'self', vehicleId: 'jeep', speed: 0, gearing: 'high', accelerating: false, braking: false, distance: 0, own: true };
 mixer.update({ active: true, voices: [idle] }); mixer.tick();
 assert.equal(voices[0].playing, false, 'Audio waits for a user gesture');
@@ -77,6 +77,9 @@ assert(voices[1].playing, 'Nearby multiplayer vehicles have their own engine sou
 const replacementCounts = voices.map(voice => voice.replaceCalls);
 mixer.update({ active: true, voices: [{ ...idle, id: 'friend', vehicleId: 'rally', own: false, distance: 8 }, { ...idle, vehicleId: 'crawler' }] }); mixer.tick();
 assert.deepEqual(voices.map(voice => voice.replaceCalls), replacementCounts, 'Reordering nearby cars keeps the same audio players and does not reload clips');
+mixer.update({ active: true, voices: [{ ...idle, vehicleId: 'gt3' }] }); mixer.tick();
+assert.equal(voices[0].source, 4, 'GT3 has its own engine clip');
+assert(voices[0].playing, 'GT3 engine plays through the same stable mixer');
 mixer.update({ active: true, voices: [idle] }); mixer.tick();
 assert(!voices[1].playing, 'Departing remote vehicles stop their engine sound');
 mixer.silence(); mixer.tick(0.1);
@@ -89,7 +92,7 @@ const cachedPlayer = { ...voices[0], playing: false, playCalls: 0, replaceCalls:
 const cachedMixer = createEngineMixer([cachedPlayer], null);
 cachedMixer.update({ active: true, voices: [idle] }); cachedMixer.unlock();
 assert.equal(cachedPlayer.replaceCalls, 0, 'Playback waits until sources finish caching');
-cachedMixer.setSources({ jeep: { uri: 'file:///engine-jeep.wav' }, crawler: 2, rally: 3 }); cachedMixer.tick();
+cachedMixer.setSources({ jeep: { uri: 'file:///engine-jeep.wav' }, crawler: 2, rally: 3, gt3: 4 }); cachedMixer.tick();
 assert.equal(cachedPlayer.source.uri, 'file:///engine-jeep.wav', 'Playback uses the cached local asset');
 assert(cachedPlayer.playing); cachedMixer.dispose();
 const snapshot = { players: [
@@ -97,7 +100,7 @@ const snapshot = { players: [
   ...[100, 10, 5].map((x, i) => ({ id: `p${i}`, vehicleId: 'jeep', speed: 8, gearing: 'high', body: { position: { x, y: 0, z: 0 } } })),
 ] };
 assert.deepEqual(nearbyEngines(snapshot, 'self').map(voice => voice.distance), [5, 10], 'Only nearby engines are mixed, closest first');
-for (const id of ['jeep', 'crawler', 'rally']) {
+for (const id of ['jeep', 'crawler', 'rally', 'gt3']) {
   const wav = fs.readFileSync(path.resolve(__dirname, `../assets/audio/engine-${id}.wav`));
   assert.equal(wav.toString('ascii', 0, 4), 'RIFF'); assert.equal(wav.toString('ascii', 8, 12), 'WAVE');
   assert.equal(wav.readUInt16LE(22), 1); assert.equal(wav.readUInt32LE(24), 22050); assert.equal(wav.readUInt16LE(34), 16);
@@ -128,7 +131,7 @@ const context = {
   },
 };
 const webPlayer = createWebEnginePlayer(context, new Map([['1', {}], ['2', {}], ['3', {}]]));
-const webMixer = createEngineMixer([webPlayer], { jeep: 1, crawler: 2, rally: 3 });
+const webMixer = createEngineMixer([webPlayer], { jeep: 1, crawler: 2, rally: 3, gt3: 4 });
 webMixer.update({ active: true, voices: [{ ...idle, speed: 40, accelerating: true }] }); webMixer.unlock();
 for (let tick = 0; tick < 40; tick++) {
   context.currentTime += 0.08;
@@ -146,3 +149,68 @@ assert.equal(nodes[0].starts, 1, 'Returning from a menu resumes the same source 
 webMixer.dispose(); webPlayer.dispose();
 assert.equal(nodes[0].stops, 1, 'The source is released when the audio backend is disposed');
 console.log('Web audio checks passed: continuous buffer playback, smooth pitch/gain, blur/throttle release, fade-out, phase-preserving resume, disposal.');
+
+const { createHornMixer, hornRate, nearbyHorns, isHornTone } = load('horn-audio');
+const hornPlayers = Array.from({ length: 4 }, () => ({
+  loop: false, shouldCorrectPitch: true, volume: 0, playing: false, isLoaded: true, rate: 1,
+  plays: 0, pauses: 0, replacements: 0,
+  play() { this.playing = true; this.plays++; }, pause() { this.playing = false; this.pauses++; },
+  replace() { this.replacements++; }, setPlaybackRate(rate) { this.rate = rate; },
+}));
+const ownHorn = { id: 'self', vehicleId: 'jeep', tone: 'auto', honking: true, distance: 0, own: true };
+assert.equal(new Set(['jeep', 'crawler', 'rally', 'gt3'].map(id => hornRate(id, 'auto'))).size, 4, 'Each vehicle has a distinct automatic horn pitch');
+assert(hornRate('jeep', 'low') < hornRate('jeep', 'mid') && hornRate('jeep', 'mid') < hornRate('jeep', 'high'), 'Manual horn tones run from low to high');
+assert(isHornTone('auto') && isHornTone('high') && !isHornTone(100000) && !isHornTone('unknown'), 'Only the supported horn tones are accepted');
+const horns = createHornMixer(hornPlayers);
+horns.update({ active: true, voices: [ownHorn] }); horns.tick();
+assert.equal(hornPlayers[0].plays, 0, 'Horn waits for its cached clip');
+horns.setSource(9); horns.tick();
+assert.equal(hornPlayers[0].plays, 1); assert.equal(hornPlayers[0].rate, hornRate('jeep', 'auto'));
+assert.equal(hornPlayers[0].shouldCorrectPitch, false, 'Horn playback changes the actual pitch');
+const initialHornGain = hornPlayers[0].volume;
+for (let i = 0; i < 20; i++) horns.tick();
+assert(hornPlayers[0].volume > initialHornGain, 'Horn attacks with a short fade');
+horns.update({ active: true, voices: [{ ...ownHorn, tone: 'high' }] }); horns.tick();
+assert.equal(hornPlayers[0].rate, hornRate('jeep', 'high'));
+assert.equal(hornPlayers[0].plays, 1); assert.equal(hornPlayers[0].replacements, 1, 'Changing pitch keeps the continuous horn source');
+horns.update({ active: true, voices: [{ ...ownHorn, honking: false }] }); horns.tick();
+assert(hornPlayers[0].playing && hornPlayers[0].volume > 0, 'Releasing a horn fades before pausing');
+for (let i = 0; i < 30; i++) horns.tick();
+assert(!hornPlayers[0].playing && hornPlayers[0].volume === 0, 'Released horn becomes fully silent');
+const quartet = [ownHorn, ...['crawler', 'rally', 'gt3'].map((vehicleId, i) => ({ ...ownHorn, id: `friend${i}`, vehicleId, distance: 8 + i * 5, own: false }))];
+horns.update({ active: true, voices: quartet });
+for (let i = 0; i < 20; i++) horns.tick();
+assert(hornPlayers.every(player => player.playing), 'Four players can sound their horns together');
+const hornPlayCounts = hornPlayers.map(player => player.plays);
+horns.update({ active: true, voices: [...quartet].reverse() }); horns.tick();
+assert.deepEqual(hornPlayers.map(player => player.plays), hornPlayCounts, 'Reordering nearby horns does not restart them');
+horns.setMuted(true); horns.tick(); assert(hornPlayers.some(player => player.playing), 'Mute uses the horn fade');
+for (let i = 0; i < 30; i++) horns.tick();
+assert(hornPlayers.every(player => !player.playing), 'Sound mute silences all horns');
+horns.setMuted(false); horns.update({ active: true, voices: [ownHorn] }); horns.tick();
+horns.silence(); for (let i = 0; i < 30; i++) horns.tick();
+assert(hornPlayers.every(player => !player.playing), 'Focus loss and menus release the horn pool');
+horns.dispose();
+const hornSnapshot = { players: [
+  { id: 'self', body: { position: { x: 0, y: 0, z: 0 } } },
+  ...[10, 40, 100].map((x, i) => ({ id: `horn${i}`, vehicleId: 'gt3', horn: true, hornTone: 'low', body: { position: { x, y: 0, z: 0 } } })),
+] };
+assert.deepEqual(nearbyHorns(hornSnapshot, 'self').map(voice => voice.distance), [10, 40], 'Remote horns are audible only within 80 metres');
+const hornWav = fs.readFileSync(path.resolve(__dirname, '../assets/audio/horn.wav'));
+assert.equal(hornWav.toString('ascii', 0, 4), 'RIFF');
+assert.equal(hornWav.readUInt32LE(40), 22050 * 16 * 2);
+const boundarySlope = hornWav.readInt16LE(44) - hornWav.readInt16LE(hornWav.length - 2);
+const firstSlope = hornWav.readInt16LE(46) - hornWav.readInt16LE(44);
+assert(Math.abs(boundarySlope - firstSlope) < 100, 'High-frequency horn loop keeps a continuous slope at its boundary');
+let hornEnergy = 0;
+for (let i = 44; i < hornWav.length; i += 2) { const sample = hornWav.readInt16LE(i); hornEnergy += sample * sample; assert(Math.abs(sample) < 32767, 'Horn does not clip'); }
+assert(hornEnergy > 0, 'Horn asset is audible');
+const nodeCount = nodes.length; const gainCount = gains.length;
+const webHornPlayer = createWebEnginePlayer(context, new Map([['horn', {}]]), { gainRamp: 0.012, pitchRamp: 0.025 });
+const webHorns = createHornMixer([webHornPlayer]); webHorns.setSource({ uri: 'horn' }); webHorns.update({ active: true, voices: [ownHorn] }); webHorns.tick();
+webHorns.update({ active: true, voices: [{ ...ownHorn, tone: 'low' }] }); webHorns.tick();
+assert.equal(nodes.length, nodeCount + 1, 'Web horn pitch changes use one buffer source');
+assert(gains[gainCount].gain.targets.every(target => target.timeConstant === 0.012), 'Web horn uses its shorter audio-clock attack ramp');
+assert(nodes[nodeCount].playbackRate.targets.some(target => target.timeConstant === 0.025), 'Web horn pitch transitions are smoothed');
+webHorns.dispose(); webHornPlayer.dispose();
+console.log('Horn checks passed: vehicle/manual pitches, cached loops, hold/release fades, four independent voices, mute/focus, distance, continuous web playback.');

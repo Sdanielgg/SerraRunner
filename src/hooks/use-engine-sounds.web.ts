@@ -7,6 +7,7 @@ const modules = {
   jeep: require('../../assets/audio/engine-jeep.wav'),
   crawler: require('../../assets/audio/engine-crawler.wav'),
   rally: require('../../assets/audio/engine-rally.wav'),
+  gt3: require('../../assets/audio/engine-gt3.wav'),
 };
 type Runtime = { context: AudioContext; mixer: ReturnType<typeof createEngineMixer> };
 
@@ -32,6 +33,7 @@ export function useEngineSounds() {
       jeep: { uri: Asset.fromModule(modules.jeep).uri },
       crawler: { uri: Asset.fromModule(modules.crawler).uri },
       rally: { uri: Asset.fromModule(modules.rally).uri },
+      gt3: { uri: Asset.fromModule(modules.gt3).uri },
     };
     void Promise.all(Object.values(sources).map(async source => {
       const response = await fetch(source.uri, { signal: abort.signal });

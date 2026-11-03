@@ -1,8 +1,9 @@
 import type { Controls, Gearing } from './physics';
 import type { VehicleId } from './vehicles';
+import type { HornTone } from './horn-audio';
 
-// Clients and servers must agree on the circuit and its physical barriers.
-export const NETWORK_VERSION = 2;
+// Clients and servers must agree on the vehicle roster and circuit collisions.
+export const NETWORK_VERSION = 4;
 export const MAX_PLAYERS = 4;
 export const ROOM_NAME = 'serra_drive';
 export type TestLocation = 'garage' | 'trail' | 'race';
@@ -12,13 +13,14 @@ export type Pose = { position: Vector; quaternion: Rotation };
 export type PlayerSnapshot = {
   id: string; name: string; vehicleId: VehicleId; gearing: Gearing; revision: number;
   body: Pose; wheels: Pose[]; speed: number; reverse: boolean;
+  horn: boolean; hornTone: HornTone;
 };
 export type RoomSnapshot = { version: number; tick: number; players: PlayerSnapshot[] };
-export type InputMessage = { seq: number; controls: Controls; gearing: Gearing };
+export type InputMessage = { seq: number; controls: Controls; gearing: Gearing; horn: boolean; hornTone: HornTone };
 export type RoomInfo = { code: string; sessionId: string; players: { id: string; name: string; vehicleId: VehicleId }[] };
 
 export function isVehicleId(value: unknown): value is VehicleId {
-  return value === 'jeep' || value === 'crawler' || value === 'rally';
+  return value === 'jeep' || value === 'crawler' || value === 'rally' || value === 'gt3';
 }
 
 export function isTestLocation(value: unknown): value is TestLocation {

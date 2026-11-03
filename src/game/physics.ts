@@ -166,6 +166,19 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
   }
   reset();
   const forward = new Vec3();
+  const aeroUp = new Vec3(); const aeroForce = new Vec3();
+  const applyAerodynamics = () => {
+    if (!spec.downforceCoefficient || !vehicle.wheelInfos.some(wheel => wheel.isInContact)) return;
+    chassis.quaternion.vmult(upAxis, aeroUp);
+    if (aeroUp.y < 0.5) return;
+    chassis.quaternion.vmult(new Vec3(0, 0, -1), forward);
+    const speed = Math.abs(chassis.velocity.dot(forward));
+    aeroUp.scale(-Math.min(spec.mass * 9.81 * 0.65, speed * speed * spec.downforceCoefficient), aeroForce);
+    chassis.applyForce(aeroForce);
+  };
+  // Apply once per physics tick in solo and shared server worlds, independently
+  // of the render frame rate. Airborne or overturned cars receive no downforce.
+  if (spec.downforceCoefficient) world.addEventListener('preStep', applyAerodynamics);
   function applyControls(dt: number, input: Controls, gearing: Gearing = 'high') {
     const range = spec[gearing];
     chassis.quaternion.vmult(new Vec3(0, 0, -1), forward);
@@ -181,7 +194,7 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
     const limited = drive > 0 ? signedSpeed > range.forwardLimit : signedSpeed < -range.reverseLimit;
     for (let i = 0; i < 4; i++) {
       vehicle.applyEngineForce(input.brake || opposing || limited ? 0 : drive * range.engineForce, i);
-      vehicle.setBrake((input.brake ? 25 : opposing ? 35 : 0) * spec.mass / 700, i);
+      vehicle.setBrake((input.brake ? (spec.brakeForce ?? 25) : opposing ? 35 : 0) * spec.mass / 700, i);
     }
   }
   function getTelemetry() {
@@ -200,6 +213,6 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
     world, chassis, vehicle, step, reset, getWheelTransforms, applyControls, getTelemetry,
     startTrail() { reset(trailStart); },
     startRace(slot = 0) { reset(raceSpawn(slot)); },
-    dispose() { world.removeEventListener('postStep', recordWheels); vehicle.removeFromWorld(world); },
+    dispose() { world.removeEventListener('postStep', recordWheels); world.removeEventListener('preStep', applyAerodynamics); vehicle.removeFromWorld(world); },
   };
 }

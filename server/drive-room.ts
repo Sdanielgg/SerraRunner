@@ -3,10 +3,12 @@ import { Room, ServerError, type Client } from '@colyseus/core';
 import { createPhysics, createPhysicsWorld, emptyControls, type Controls, type Gearing } from '../src/game/physics';
 import { isTestLocation, isVehicleId, MAX_PLAYERS, NETWORK_VERSION, type PlayerSnapshot, type RoomSnapshot, type TestLocation } from '../src/game/network-types';
 import type { VehicleId } from '../src/game/vehicles';
+import { isHornTone, type HornTone } from '../src/game/horn-audio';
 
 type Player = {
   name: string; slot: number; vehicleId: VehicleId; car: ReturnType<typeof createPhysics>;
   controls: Controls; gearing: Gearing; revision: number; seq: number;
+  horn: boolean; hornTone: HornTone;
   lastInput: number; lastAction: number; bucketStart: number; messages: number;
 };
 const activeCodes = new Set<string>();
@@ -35,6 +37,8 @@ export class DriveRoom extends Room {
       const controls = emptyControls();
       for (const key of Object.keys(controls) as (keyof Controls)[]) controls[key] = raw[key] === true;
       player.controls = controls; player.gearing = value.gearing;
+      player.horn = value.horn === true;
+      player.hornTone = isHornTone(value.hornTone) ? value.hornTone : 'auto';
       player.seq = value.seq as number; player.lastInput = Date.now();
     });
     this.onMessage('vehicle', (client, payload: unknown) => {
@@ -58,7 +62,7 @@ export class DriveRoom extends Room {
       while (this.accumulator >= dt) {
         this.accumulator -= dt;
         for (const player of this.players.values()) {
-          if (Date.now() - player.lastInput > 500) player.controls = emptyControls();
+          if (Date.now() - player.lastInput > 500) { player.controls = emptyControls(); player.horn = false; }
           player.car.applyControls(dt, player.controls, player.gearing);
         }
         this.world.step(dt); this.tick++;
@@ -84,6 +88,7 @@ export class DriveRoom extends Room {
     const player: Player = {
       name: name || `Condutor ${slot + 1}`, slot, vehicleId, car: createPhysics(vehicleId, this.world),
       controls: emptyControls(), gearing: 'high', revision: 0, seq: -1,
+      horn: false, hornTone: 'auto',
       lastInput: Date.now(), lastAction: 0, bucketStart: Date.now(), messages: 0,
     };
     this.players.set(client.sessionId, player); this.respawn(player, 'garage');
@@ -94,6 +99,7 @@ export class DriveRoom extends Room {
     const player = this.players.get(client.sessionId);
     if (!player) return;
     player.controls = { ...emptyControls(), brake: true };
+    player.horn = false;
     if (!consented) {
       try {
         await this.allowReconnection(client, 15);
@@ -125,7 +131,7 @@ export class DriveRoom extends Room {
     if (location === 'race') player.car.startRace(player.slot);
     else player.car.reset({ x: location === 'trail' ? -35 + x : x, y: 1.5, z: 6, yaw: location === 'trail' ? 0 : -0.35 });
     player.gearing = location === 'trail' ? 'low' : 'high';
-    player.controls = emptyControls(); player.revision++;
+    player.controls = emptyControls(); player.horn = false; player.revision++;
   }
 
   private snapshot(): RoomSnapshot {
@@ -133,6 +139,7 @@ export class DriveRoom extends Room {
       const { chassis } = player.car;
       return {
         id, name: player.name, vehicleId: player.vehicleId, gearing: player.gearing, revision: player.revision,
+        horn: player.horn, hornTone: player.hornTone,
         body: { position: { ...chassis.position }, quaternion: { ...chassis.quaternion } },
         wheels: player.car.getWheelTransforms(false).map(wheel => ({ position: { ...wheel.position }, quaternion: { ...wheel.quaternion } })),
         ...player.car.getTelemetry(),

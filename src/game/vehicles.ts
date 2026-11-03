@@ -1,4 +1,4 @@
-export type VehicleId = 'jeep' | 'crawler' | 'rally';
+export type VehicleId = 'jeep' | 'crawler' | 'rally' | 'gt3';
 export type VehicleSpec = {
   id: VehicleId; name: string; category: string; color: string;
   benefit: string; tradeoff: string;
@@ -6,6 +6,7 @@ export type VehicleSpec = {
   wheelRadius: number; wheelWidth: number; track: number;
   suspensionRest: number; suspensionTravel: number; suspensionStiffness: number;
   grip: number; rollInfluence: number; steering: number;
+  bellyDepth?: number; bumperDepth?: number; brakeForce?: number; downforceCoefficient?: number;
   high: { engineForce: number; forwardLimit: number; reverseLimit: number };
   low: { engineForce: number; forwardLimit: number; reverseLimit: number };
 };
@@ -44,6 +45,18 @@ export const vehicles: Record<VehicleId, VehicleSpec> = {
     high: { engineForce: 2100, forwardLimit: 34, reverseLimit: 10 },
     low: { engineForce: 2800, forwardLimit: 12, reverseLimit: 5 },
   },
+  gt3: {
+    id: 'gt3', name: 'Serra GT3', category: 'Circuito', color: '#278fac',
+    benefit: 'O mais rápido em asfalto: pneus largos, suspensão firme e apoio aerodinâmico nas curvas.',
+    tradeoff: 'Muito baixo e com pouco curso de suspensão; raspa facilmente no terreno difícil.',
+    mass: 800, widthScale: 1.16, heightScale: 0.72, lengthScale: 1.25,
+    wheelRadius: 0.32, wheelWidth: 0.42, track: 1.1,
+    suspensionRest: 0.10, suspensionTravel: 0.08, suspensionStiffness: 60,
+    grip: 5.8, rollInfluence: 0.025, steering: 0.48,
+    bellyDepth: 0.32, bumperDepth: 0.28, brakeForce: 30, downforceCoefficient: 1.8,
+    high: { engineForce: 2800, forwardLimit: 50, reverseLimit: 9 },
+    low: { engineForce: 3400, forwardLimit: 14, reverseLimit: 5 },
+  },
 };
 
 export const vehicleList = Object.values(vehicles);
@@ -51,5 +64,5 @@ export const vehicleList = Object.values(vehicles);
 // Approximate static clearance beneath the lowest chassis box, allowing for
 // suspension compression under gravity. Actual clearance varies with the terrain.
 export function groundClearance(spec: VehicleSpec) {
-  return spec.wheelRadius + spec.suspensionRest - 9.81 / (4 * spec.suspensionStiffness) - 0.18 * spec.heightScale;
+  return spec.wheelRadius + spec.suspensionRest - 9.81 / (4 * spec.suspensionStiffness) - (spec.bellyDepth ?? 0.18) * spec.heightScale;
 }

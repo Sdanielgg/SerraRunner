@@ -1,6 +1,6 @@
 ﻿# Serra Runner — Jeep low poly
 
-Jogo de condução para telemóvel e navegador, feito em Expo SDK 58. Inclui uma garagem plana, uma pista de terreno difícil e um circuito de corridas para testar três veículos 3D, a solo ou com amigos.
+Jogo de condução para telemóvel e navegador, feito em Expo SDK 58. Inclui uma garagem plana, uma pista de terreno difícil e um circuito de corridas para testar quatro veículos 3D, a solo ou com amigos.
 
 ## Abrir
 
@@ -39,12 +39,13 @@ Para verificar a exportação antes de publicar, usa `npm run web:build`: gera `
 
 - Telemóvel: mantém premidos os botões de direção e Acelerar, Recuar ou Travar. Podes acelerar e virar em simultâneo.
 - Computador: WASD ou setas; Espaço trava; R repõe o carro.
+- **Buzina**: mantém o botão **Buzina** ou a tecla **B** premidos. **Tom** ou a tecla **N** alterna entre Auto, Grave, Médio e Agudo. Em Auto, cada veículo tem um pitch próprio: Crawler mais grave, seguido do Jeep, Rally e GT3.
 - Gearing: seleciona **LOW** ou **HIGH** no ecrã; no computador, usa L ou H. Low dá mais força e limita a velocidade a cerca de 32 km/h (14 km/h em marcha-atrás). High é o modo inicial e mantém os limites de 83 e 29 km/h. Podes alternar durante a condução; o jeep desacelera naturalmente se estiver acima do limite de Low. Repor mantém o modo selecionado.
 - Câmara: alterna entre vista de três quartos, traseira e **Livre** (tecla C no computador). Em Livre, arrasta numa zona livre do ecrã com o dedo ou rato para orbitar à volta do jeep. A orientação mantém-se quando o carro vira; podes continuar a usar os pedais com outros dedos. A altura da câmara acompanha o relevo.
 - **Testar terreno** (tecla T): coloca o jeep na entrada da pista e seleciona Low. Segue as bandeiras: rampa de 4 m, lombas desencontradas para testar a articulação da suspensão e subida de 7 m com inclinação lateral. Também podes conduzir até à pista, à esquerda da garagem. O relevo visual e as colisões usam a mesma grelha de alturas.
 - **Circuito** (tecla P): entra no Circuito da Serra em High. Percurso fechado de aproximadamente 400 m, com asfalto de 12 m de largura, reta de partida, curvas rápidas, zona em S, pianos vermelhos/brancos, setas de direção e barreiras com colisão. A grelha tem quatro lugares, usados também no multiplayer. No circuito, **Repor** (R) regressa à grelha. A ligação por estrada à direita da garagem permite entrar a conduzir.
 - Repor: recoloca o jeep na posição inicial, incluindo se capotar.
-- Som: o botão **Som: ligado/desligado** ativa ou silencia os motores. O som começa depois da primeira interação com o jogo.
+- Som: o botão **Som: ligado/desligado** ativa ou silencia os motores e as buzinas. O som começa depois da primeira interação com o jogo.
 
 ## Sons dos veículos
 
@@ -53,6 +54,8 @@ Cada veículo tem um motor sintetizado diferente: o Crawler tem um som mais grav
 Os loops WAV são locais e originais, gerados por `scripts/generate-engine-audio.cjs`; não dependem de serviços de som externos. Cada loop tem 16 segundos e é guardado na cache do dispositivo antes de tocar, incluindo ao trocar de veículo. A reprodução mantém-se contínua nas transições do loop e evita reconfigurar a rotação com alterações mínimas. No multiplayer, cada leitor de áudio acompanha o mesmo carro, mesmo quando a ordem dos carros por distância muda. Para regenerar os sons: `npm run audio:generate`. A reprodução usa `expo-audio`, incluído no Expo Go compatível com o SDK 58, sem pedir acesso ao microfone. Depois de atualizar as dependências, reinicia o Expo com `npm start -- --clear`.
 
 No navegador, o som usa Web Audio com os ficheiros descodificados em memória. A rotação e o volume mudam por rampas no relógio do áudio, e o mesmo loop mantém a sua fase ao silenciar e retomar. Em iOS/Android, a reprodução usa `expo-audio` e os ficheiros em cache.
+
+A buzina usa um loop original de dois tons, em leitores separados dos motores, com fade ao carregar e largar. O pitch pode mudar durante a buzina sem recarregar o som. No multiplayer, ouves as buzinas de outros jogadores até 80 m, com volume reduzido pela distância. Ao perder o foco, abrir menus, desligar o som ou perder a ligação, a buzina deixa de tocar; o servidor também liberta comandos sem atualizações. `npm run audio:generate` gera motores e buzina.
 
 ## Veículos
 
@@ -63,8 +66,11 @@ Abre **Veículos** (tecla V no computador) para comparar os modelos. **Testar na
 | Serra 4×4 | 54 cm | 83 km/h | Equilíbrio entre velocidade e capacidade no terreno. |
 | Rocha Crawler | 86 cm | 58 km/h | Rodas maiores e suspensão de maior curso; mais pesado e lento, exige cuidado nas inclinações laterais. |
 | Vale Rally | 32 cm | 122 km/h | Mais leve, baixo e rápido; raspa com mais facilidade e tem menos curso de suspensão nas lombas. |
+| Serra GT3 | 15 cm | 180 km/h | Coupé de circuito, pneus largos, suspensão curta e apoio aerodinâmico; raspa muito facilmente fora do asfalto. |
 
 As alturas são estimadas em repouso, em plano. Cada modelo tem geometria, massa, dimensões de colisão, raio das rodas, aderência, suspensão e relações Low/High próprios. O Crawler tem bagageira de tejadilho, snorkel e proteções; o Rally tem carroçaria baixa, faixa clara e aileron. Os travões suaves adaptam a força à massa de cada veículo.
+
+O Serra GT3 é um modelo original inspirado nos carros de circuito: carroçaria azul com faixa clara, cavas abertas, splitter, difusor, jantes de seis raios, número 7 e aileron traseiro. Tem som de motor próprio, travões adaptados à velocidade e força aerodinâmica proporcional ao quadrado da velocidade, aplicada apenas com rodas em contacto e o carro direito. Seleciona-o em **Veículos → Serra GT3 → Circuito de corridas · HIGH**. O modelo também funciona online; publica o site e o servidor atualizados (protocolo 4, com buzinas sincronizadas).
 
 ## Multiplayer
 
@@ -85,7 +91,9 @@ O contacto da suspensão considera o contorno e a largura dos pneus para detetar
 ## Código
 
 - `src/game/jeep.ts`: modelo e materiais.
-- `src/game/vehicles.ts`: características e afinação dos três veículos.
+- `src/game/vehicles.ts`: características e afinação dos quatro veículos.
+- `src/game/gt3-model.ts`: carroçaria e detalhes do GT3.
+- `src/game/horn-audio.ts`: pitches, vozes, distância e fades das buzinas.
 - `src/game/physics.ts`: física, suspensão e comandos.
 - `src/game/race-track.ts`: traçado, grelha e colisões do circuito partilhados com o servidor.
 - `src/game/race-track-scene.ts`: asfalto, pianos, barreiras, marcações e pórtico da partida.

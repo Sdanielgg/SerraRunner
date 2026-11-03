@@ -1,6 +1,6 @@
 ﻿# Serra Runner — Jeep low poly
 
-Cena de condução livre para telemóvel, feita em Expo SDK 58. Inclui uma garagem plana e uma pista de terreno difícil para testar um jeep 3D, sem corridas, missões ou pontuações.
+Cena de condução livre para telemóvel, feita em Expo SDK 58. Inclui uma garagem plana e uma pista de terreno difícil para testar três veículos 3D, sem corridas, missões ou pontuações.
 
 ## Abrir
 
@@ -24,6 +24,24 @@ Em PowerShell com execução de scripts bloqueada, usa `npm.cmd` e `npx.cmd`.
 - **Testar terreno** (tecla T): coloca o jeep na entrada da pista e seleciona Low. Segue as bandeiras: rampa de 4 m, lombas desencontradas para testar a articulação da suspensão e subida de 7 m com inclinação lateral. Também podes conduzir até à pista, à esquerda da garagem. O relevo visual e as colisões usam a mesma grelha de alturas.
 - Repor: recoloca o jeep na posição inicial, incluindo se capotar.
 
+## Veículos
+
+Abre **Veículos** (tecla V no computador) para comparar os modelos. **Testar na pista** coloca o modelo escolhido na mesma entrada do percurso, em Low; **Testar no plano** coloca-o na garagem em High. A simulação fica em pausa enquanto o seletor está aberto. Podes voltar ao seletor e trocar de veículo a qualquer momento; a câmara mantém o modo escolhido e os comandos anteriores são libertados.
+
+| Modelo | Altura ao solo aproximada | Máxima em High | Vantagens e limitações |
+| --- | --- | --- | --- |
+| Serra 4×4 | 54 cm | 83 km/h | Equilíbrio entre velocidade e capacidade no terreno. |
+| Rocha Crawler | 86 cm | 58 km/h | Rodas maiores e suspensão de maior curso; mais pesado e lento, exige cuidado nas inclinações laterais. |
+| Vale Rally | 32 cm | 122 km/h | Mais leve, baixo e rápido; raspa com mais facilidade e tem menos curso de suspensão nas lombas. |
+
+As alturas são estimadas em repouso, em plano. Cada modelo tem geometria, massa, dimensões de colisão, raio das rodas, aderência, suspensão e relações Low/High próprios. O Crawler tem bagageira de tejadilho, snorkel e proteções; o Rally tem carroçaria baixa, faixa clara e aileron. Os travões suaves adaptam a força à massa de cada veículo.
+
+## Multiplayer
+
+Abre **Online** (tecla M no computador), indica o servidor e cria uma sala ou entra com um código. Até quatro jogadores partilham o terreno, com física e colisões calculadas num servidor Node.js/Colyseus. O modo individual continua disponível. **Sair da sala** volta ao modo individual.
+
+O servidor está pronto para alojamento público com `render.yaml`; ainda é necessário publicá-lo numa conta de alojamento e introduzir o endereço real no jogo. Segue [as instruções de publicação e teste](server/README.md). Para testar no computador: `npm run server:dev` e usa `http://localhost:2567` no menu Online. Para redes diferentes, usa a URL HTTPS/WSS do serviço publicado.
+
 Ecrã fixado na horizontal em mobile. Os controlos seguem cada dedo separadamente: podes acelerar, virar ou travar em simultâneo, e levantar um dedo mantém os restantes comandos ativos. Ao sair da aplicação ou perder o foco no navegador, os comandos são libertados.
 
 ## Física e modelo
@@ -35,11 +53,13 @@ Física com gravidade, colisão com o chão, chassis de 700 kg, tração nas qua
 ## Código
 
 - `src/game/jeep.ts`: modelo e materiais.
+- `src/game/vehicles.ts`: características e afinação dos três veículos.
 - `src/game/physics.ts`: física, suspensão e comandos.
 - `src/game/terrain.ts`: grelha do relevo partilhada pelo desenho e pelas colisões.
 - `src/game/orbit-camera.ts`: arrasto, orientação e limites da câmara livre.
 - `src/game/scene.ts`: chão, luz, sombras, câmara e renderização.
 - `src/components/driving-scene.tsx`: ecrã e controlos táteis/teclado.
+- `src/components/vehicle-garage.tsx`: comparação e escolha dos veículos para teste.
 
 ## Verificação
 

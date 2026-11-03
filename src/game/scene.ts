@@ -4,8 +4,10 @@ import { createJeep } from './jeep';
 import { Controls, createPhysics, type Gearing } from './physics';
 import { createOrbitCamera } from './orbit-camera';
 import { terrainHeightAt, terrainHeights, trail } from './terrain';
+import { vehicles, type VehicleId } from './vehicles';
+import type { PlayerSnapshot, Pose, RoomSnapshot } from './network-types';
 
-export function createScene(gl: ExpoWebGLRenderingContext) {
+export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: VehicleId = 'jeep') {
   // Native GL has no DOM canvas. Three only needs this small surface adapter.
   const canvas = gl.canvas ?? {
     width: gl.drawingBufferWidth, height: gl.drawingBufferHeight,
@@ -73,8 +75,15 @@ export function createScene(gl: ExpoWebGLRenderingContext) {
   }
   const border = new THREE.Mesh(new THREE.RingGeometry(23, 23.12, 64), new THREE.MeshBasicMaterial({ color: '#e5dfc0', side: THREE.DoubleSide }));
   border.rotation.x = -Math.PI / 2; border.position.y = 0.02; scene.add(border);
-  const jeep = createJeep(); scene.add(jeep.body, ...jeep.wheels);
-  const physics = createPhysics();
+  let jeep = createJeep(vehicles[initialVehicle]); scene.add(jeep.body, ...jeep.wheels);
+  let physics = createPhysics(initialVehicle);
+  let visualVehicle = initialVehicle;
+  let onlineSession: string | null = null;
+  let ownRevision = -1;
+  const snapshots: { state: RoomSnapshot; time: number }[] = [];
+  const remoteModels = new Map<string, { model: ReturnType<typeof createJeep>; vehicleId: VehicleId }>();
+  const rotationA = new THREE.Quaternion(); const rotationB = new THREE.Quaternion();
+  let onlineTelemetry = { speed: 0, reverse: false };
   const target = new THREE.Vector3();
   const offset = new THREE.Vector3();
   const desired = new THREE.Vector3();
@@ -87,8 +96,72 @@ export function createScene(gl: ExpoWebGLRenderingContext) {
   function liftAboveTerrain(position: THREE.Vector3) {
     position.y = Math.max(position.y, terrainHeightAt(position.x, position.z) + 1.2);
   }
+  function disposeObjects(objects: THREE.Object3D[]) {
+    const geometries = new Set<THREE.BufferGeometry>(); const materials = new Set<THREE.Material>();
+    objects.forEach(root => root.traverse(object => {
+      if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
+        geometries.add(object.geometry);
+        const list = Array.isArray(object.material) ? object.material : [object.material];
+        list.forEach(material => materials.add(material));
+      }
+    }));
+    geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose());
+  }
+  function removeModel(model: ReturnType<typeof createJeep>) {
+    const objects = [model.body, ...model.wheels]; scene.remove(...objects); disposeObjects(objects);
+  }
+  function pose(object: THREE.Object3D, from: Pose, to: Pose, alpha: number) {
+    object.position.set(from.position.x, from.position.y, from.position.z).lerp(to.position as THREE.Vector3, alpha);
+    rotationA.set(from.quaternion.x, from.quaternion.y, from.quaternion.z, from.quaternion.w);
+    rotationB.set(to.quaternion.x, to.quaternion.y, to.quaternion.z, to.quaternion.w);
+    object.quaternion.copy(rotationA).slerp(rotationB, alpha);
+  }
+  function updateModel(model: ReturnType<typeof createJeep>, from: PlayerSnapshot, to: PlayerSnapshot, alpha: number) {
+    if (from.revision !== to.revision || from.vehicleId !== to.vehicleId) { from = to; alpha = 1; }
+    pose(model.body, from.body, to.body, alpha);
+    model.wheels.forEach((wheel, i) => { if (from.wheels[i] && to.wheels[i]) pose(wheel, from.wheels[i], to.wheels[i], alpha); });
+  }
+  function renderOnline() {
+    if (!snapshots.length) return onlineTelemetry;
+    const latest = snapshots[snapshots.length - 1];
+    const targetTime = Date.now() - 80;
+    let before = snapshots[0]; let after = latest;
+    for (const item of snapshots) {
+      if (item.time <= targetTime) before = item;
+      if (item.time >= targetTime) { after = item; break; }
+    }
+    const alpha = before === after ? 1 : THREE.MathUtils.clamp((targetTime - before.time) / Math.max(1, after.time - before.time), 0, 1);
+    for (const player of latest.state.players) {
+      let to = after.state.players.find(value => value.id === player.id) ?? player;
+      let from = before.state.players.find(value => value.id === player.id) ?? to;
+      if (to.revision !== player.revision || to.vehicleId !== player.vehicleId) { from = player; to = player; }
+      if (player.id === onlineSession) {
+        if (visualVehicle !== player.vehicleId) {
+          removeModel(jeep); jeep = createJeep(vehicles[player.vehicleId]); visualVehicle = player.vehicleId;
+          scene.add(jeep.body, ...jeep.wheels);
+        }
+        if (ownRevision !== player.revision) { snapCamera = true; ownRevision = player.revision; }
+        jeep.body.visible = true; jeep.wheels.forEach(wheel => { wheel.visible = true; });
+        updateModel(jeep, from, to, alpha);
+        onlineTelemetry = { speed: player.speed, reverse: player.reverse };
+      } else {
+        let entry = remoteModels.get(player.id);
+        if (entry && entry.vehicleId !== player.vehicleId) { removeModel(entry.model); remoteModels.delete(player.id); entry = undefined; }
+        if (!entry) {
+          entry = { model: createJeep(vehicles[player.vehicleId]), vehicleId: player.vehicleId };
+          remoteModels.set(player.id, entry); scene.add(entry.model.body, ...entry.model.wheels);
+        }
+        updateModel(entry.model, from, to, alpha);
+      }
+    }
+    for (const [id, entry] of remoteModels) {
+      if (!latest.state.players.some(player => player.id === id)) { removeModel(entry.model); remoteModels.delete(id); }
+    }
+    return onlineTelemetry;
+  }
   function frame(dt: number, controls: Controls, gearing: Gearing = 'high') {
-    const telemetry = physics.step(dt, controls, gearing);
+    const telemetry = onlineSession ? renderOnline() : physics.step(dt, controls, gearing);
+    if (!onlineSession) {
     const { chassis } = physics;
     jeep.body.position.copy(chassis.interpolatedPosition);
     jeep.body.quaternion.copy(chassis.interpolatedQuaternion);
@@ -97,6 +170,7 @@ export function createScene(gl: ExpoWebGLRenderingContext) {
       const transform = wheelTransforms[i];
       wheel.position.copy(transform.position); wheel.quaternion.copy(transform.quaternion);
     });
+    }
     if (width !== gl.drawingBufferWidth || height !== gl.drawingBufferHeight) {
       width = gl.drawingBufferWidth; height = gl.drawingBufferHeight;
       renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
@@ -124,6 +198,32 @@ export function createScene(gl: ExpoWebGLRenderingContext) {
   }
   return {
     frame,
+    setVehicle(id: VehicleId, location: 'garage' | 'trail') {
+      const oldObjects = [jeep.body, ...jeep.wheels];
+      scene.remove(...oldObjects); disposeObjects(oldObjects);
+      physics.dispose();
+      jeep = createJeep(vehicles[id]); physics = createPhysics(id);
+      visualVehicle = id;
+      scene.add(jeep.body, ...jeep.wheels);
+      if (location === 'trail') physics.startTrail();
+      snapCamera = true; orbit.cancel();
+    },
+    setNetworkSnapshot(snapshot: RoomSnapshot, sessionId: string) {
+      if (onlineSession !== sessionId) {
+        onlineSession = sessionId; ownRevision = -1; snapshots.length = 0;
+        jeep.body.visible = false; jeep.wheels.forEach(wheel => { wheel.visible = false; });
+        snapCamera = true;
+      }
+      if (snapshots.length && snapshot.tick <= snapshots[snapshots.length - 1].state.tick) return;
+      snapshots.push({ state: snapshot, time: Date.now() });
+      if (snapshots.length > 8) snapshots.shift();
+    },
+    leaveNetwork(id: VehicleId) {
+      onlineSession = null; snapshots.length = 0; ownRevision = -1;
+      for (const entry of remoteModels.values()) removeModel(entry.model);
+      remoteModels.clear(); onlineTelemetry = { speed: 0, reverse: false };
+      this.setVehicle(id, 'garage');
+    },
     reset() { physics.reset(); snapCamera = true; },
     startTrail() { physics.startTrail(); snapCamera = true; orbit.cancel(); },
     toggleCamera() { cameraMode = (cameraMode + 1) % 3; snapCamera = true; orbit.cancel(); return cameraMode; },
@@ -132,16 +232,8 @@ export function createScene(gl: ExpoWebGLRenderingContext) {
     endCameraDrag(id: number) { orbit.end(id); },
     cancelCameraDrag() { orbit.cancel(); },
     dispose() {
-      const geometries = new Set<THREE.BufferGeometry>(); const materials = new Set<THREE.Material>();
-      scene.traverse(object => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
-          geometries.add(object.geometry);
-          const list = Array.isArray(object.material) ? object.material : [object.material];
-          list.forEach(material => materials.add(material));
-        }
-      });
-      geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose());
-      renderer.dispose(); physics.vehicle.removeFromWorld(physics.world);
+      disposeObjects([scene]);
+      renderer.dispose(); physics.dispose();
     },
   };
 }

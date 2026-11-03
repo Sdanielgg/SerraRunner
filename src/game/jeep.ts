@@ -1,8 +1,10 @@
 import * as THREE from 'three';
+import { vehicles, type VehicleSpec } from './vehicles';
 
-export function createJeep() {
+export function createJeep(spec: VehicleSpec = vehicles.jeep) {
   const body = new THREE.Group();
-  const paint = new THREE.MeshStandardMaterial({ color: '#d5a14e', roughness: 0.85, flatShading: true });
+  body.name = spec.name;
+  const paint = new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.85, flatShading: true });
   const dark = new THREE.MeshStandardMaterial({ color: '#25302b', roughness: 0.9, flatShading: true });
   const rubber = new THREE.MeshStandardMaterial({ color: '#202523', roughness: 1, flatShading: true });
   const metal = new THREE.MeshStandardMaterial({ color: '#a9b1a2', roughness: 0.65, metalness: 0.3 });
@@ -14,6 +16,26 @@ export function createJeep() {
     mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true; body.add(mesh);
     return mesh;
   }
+  if (spec.id === 'rally') {
+    const stripe = new THREE.MeshStandardMaterial({ color: '#f5e5c6', roughness: 0.7 });
+    box(1.75, 0.44, 3.3, 0, 0.2, 0);
+    box(1.65, 0.22, 1.2, 0, 0.51, -1.02);
+    box(1.5, 0.65, 1.8, 0, 0.82, 0.32, dark);
+    box(1.53, 0.12, 1.8, 0, 1.19, 0.32);
+    box(1.32, 0.46, 0.05, 0, 0.88, -0.61, glass).rotation.x = -0.22;
+    box(1.3, 0.4, 0.05, 0, 0.88, 1.23, glass).rotation.x = 0.15;
+    box(0.25, 0.025, 1.17, 0, 0.632, -1.02, stripe);
+    box(0.25, 0.025, 1.8, 0, 1.263, 0.32, stripe);
+    box(1.8, 0.1, 0.4, 0, 1.23, 1.5, dark);
+    box(1.75, 0.16, 0.2, 0, 0.02, -1.73, dark);
+    for (const side of [-1, 1]) {
+      box(0.04, 0.43, 1.4, side * 0.76, 0.89, 0.32, glass);
+      box(0.04, 0.5, 0.08, side * 0.79, 0.89, 0.24);
+      box(0.44, 0.17, 0.07, side * 0.55, 0.47, -1.67, lamp);
+      box(0.25, 0.16, 0.07, side * 0.63, 0.35, 1.67, red);
+      for (const z of [-1.12, 1.15]) box(0.3, 0.1, 1.1, side * 0.87, 0.37, z, dark);
+    }
+  } else {
   box(1.7, 0.48, 3.25, 0, 0.22, 0);
   box(1.58, 0.27, 1.23, 0, 0.57, -1.02);
   box(1.57, 0.87, 1.86, 0, 0.88, 0.43, dark);
@@ -37,16 +59,30 @@ export function createJeep() {
   box(1.98, 0.2, 0.23, 0, 0.05, -1.76, dark);
   box(1.95, 0.18, 0.22, 0, 0.05, 1.76, dark);
   for (let i = -3; i <= 3; i++) box(0.06, 0.29, 0.04, i * 0.125, 0.46, -1.657, dark);
+    if (spec.id === 'crawler') {
+      // Roof rack, snorkel and reinforced bumpers distinguish the lifted model.
+      box(1.55, 0.12, 1.8, 0, 1.55, 0.4, metal);
+      for (const x of [-0.77, 0.77]) box(0.07, 0.2, 1.86, x, 1.68, 0.4, dark);
+      box(0.13, 1.1, 0.13, 0.9, 1.08, -0.49, dark);
+      box(0.25, 0.13, 0.23, 0.9, 1.65, -0.49, dark);
+      box(1.6, 0.1, 0.12, 0, 0.53, -1.85, metal);
+      for (const x of [-0.65, 0.65]) box(0.1, 0.5, 0.12, x, 0.29, -1.85, metal);
+    }
+  }
   function wheel() {
     const group = new THREE.Group();
-    const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.32, 12), rubber);
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(spec.wheelRadius, spec.wheelRadius, spec.wheelWidth, 12), rubber);
     tire.rotation.z = Math.PI / 2; tire.castShadow = true; group.add(tire);
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.337, 6), metal);
+    const hubRadius = spec.wheelRadius * (spec.id === 'rally' ? 0.68 : 0.52);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(hubRadius, hubRadius, spec.wheelWidth + 0.017, 6), metal);
     hub.rotation.z = Math.PI / 2; group.add(hub);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.35, 6), dark);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(spec.wheelRadius * 0.24, spec.wheelRadius * 0.24, spec.wheelWidth + 0.03, 6), dark);
     cap.rotation.z = Math.PI / 2; group.add(cap);
     return group;
   }
-  const spare = wheel(); spare.rotation.y = Math.PI / 2; spare.position.set(0, 0.78, 1.83); body.add(spare);
+  if (spec.id !== 'rally') {
+    const spare = wheel(); spare.rotation.y = Math.PI / 2; spare.position.set(0, 0.78, 1.83); body.add(spare);
+  }
+  body.scale.set(spec.widthScale, spec.heightScale, spec.lengthScale);
   return { body, wheels: Array.from({ length: 4 }, wheel) };
 }

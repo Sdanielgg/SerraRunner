@@ -5,12 +5,12 @@ const Module = require('node:module');
 const path = require('node:path');
 const ts = require('typescript');
 const gameModules = new Map();
-function loadGameModule(name) {
+function loadGameModule(name, overrides = {}) {
   const filename = path.resolve(__dirname, '../src/game', `${name}.ts`);
   if (gameModules.has(filename)) return gameModules.get(filename).exports;
   const mod = new Module(filename, module);
   mod.filename = filename; mod.paths = module.paths; gameModules.set(filename, mod);
-  mod.require = request => request.startsWith('./') ? loadGameModule(request.slice(2)) : Module.prototype.require.call(mod, request);
+  mod.require = request => overrides[request] ?? (request.startsWith('./') ? loadGameModule(request.slice(2)) : Module.prototype.require.call(mod, request));
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText, filename);
@@ -126,6 +126,99 @@ assert.deepEqual(orbit.offset(13), cancelledView, 'Cancellation stops the drag')
 orbit.begin(3, 0, 0); orbit.end(3); orbit.move(3, 100, 100);
 assert.deepEqual(orbit.offset(13), cancelledView, 'Releasing the finger stops the drag');
 console.log('Camera checks passed: orbit drag, independent fingers, distance, pitch limits, cancel/release.');
+
+const { vehicleList, groundClearance } = loadGameModule('vehicles');
+const { createJeep } = loadGameModule('jeep');
+const THREE = require('three');
+const measuredVehicles = {};
+for (const spec of vehicleList) {
+  const testCar = createPhysics(spec.id);
+  simulate(testCar, 3);
+  assert.equal(testCar.vehicle.numWheelsOnGround, 4, `${spec.name}: suspension supports all four wheels`);
+  const clearance = testCar.chassis.position.y - 0.18 * spec.heightScale;
+  assert(Math.abs(clearance - groundClearance(spec)) < 0.06, `${spec.name}: garage clearance matches the settled physics`);
+  const topSpeed = simulate(testCar, 6, { throttle: true }).speed;
+  assert(Math.abs(topSpeed - spec.high.forwardLimit * 3.6) < 2, `${spec.name}: reaches its own High speed limit`);
+  const stopped = simulate(testCar, 4, { brake: true });
+  assert(stopped.speed < 1, `${spec.name}: softened brakes still stop the vehicle`);
+  testCar.reset(); simulate(testCar, 2);
+  const lowTopSpeed = simulate(testCar, 5, { throttle: true }, 'low').speed;
+  assert(Math.abs(lowTopSpeed - spec.low.forwardLimit * 3.6) < 2, `${spec.name}: Low uses its own speed limit`);
+  testCar.startTrail(); simulate(testCar, 2);
+  assert.equal(testCar.vehicle.numWheelsOnGround, 4, `${spec.name}: safely spawns on the test trail`);
+  for (let tick = 0; tick < 6 * 60; tick++) {
+    testCar.step(1 / 60, { ...emptyControls(), throttle: true }, 'low');
+    assert(Number.isFinite(testCar.chassis.position.y), `${spec.name}: terrain simulation remains finite`);
+  }
+  const model = createJeep(spec);
+  assert.equal(model.wheels.length, testCar.vehicle.wheelInfos.length, `${spec.name}: model and physics have the same wheel count`);
+  model.wheels.forEach(wheel => {
+    const size = new THREE.Box3().setFromObject(wheel).getSize(new THREE.Vector3());
+    assert(Math.abs(size.y - spec.wheelRadius * 2) < 1e-6, `${spec.name}: visual tyre radius matches suspension raycasts`);
+  });
+  measuredVehicles[spec.id] = { clearance, topSpeed };
+}
+assert(measuredVehicles.crawler.clearance > measuredVehicles.jeep.clearance + 0.2, 'Crawler has meaningfully more ground clearance');
+assert(measuredVehicles.jeep.clearance > measuredVehicles.rally.clearance + 0.2, 'Rally sacrifices ground clearance');
+assert(measuredVehicles.rally.topSpeed > measuredVehicles.jeep.topSpeed + 25, 'Rally is meaningfully faster');
+assert(measuredVehicles.jeep.topSpeed > measuredVehicles.crawler.topSpeed + 20, 'Crawler sacrifices top speed');
+console.log('Vehicle comparison:', measuredVehicles);
+console.log('Vehicle checks passed: distinct clearance/speed, brakes, Low/High, trail spawns, visual wheel sizes.');
+
+// Exercise real scene objects and vehicle swaps without requiring a GPU in CI.
+let renderedScene;
+class TestRenderer {
+  constructor() { this.shadowMap = {}; }
+  setSize() {}
+  setClearColor() {}
+  render(scene) { renderedScene = scene; }
+  dispose() {}
+}
+const { createScene } = loadGameModule('scene', { three: { ...THREE, WebGLRenderer: TestRenderer } });
+const testScene = createScene({ drawingBufferWidth: 800, drawingBufferHeight: 400, endFrameEXP() {} });
+testScene.frame(1 / 60, emptyControls());
+assert(renderedScene.children.some(object => object.name === 'Serra 4×4'), 'Scene starts with the default model');
+let disposedModels = 0;
+for (const id of ['crawler', 'rally', 'jeep', 'crawler']) {
+  renderedScene.traverse(object => {
+    if (object.name === 'Serra 4×4' || object.name === 'Rocha Crawler' || object.name === 'Vale Rally') {
+      object.traverse(part => part.geometry?.addEventListener('dispose', () => { disposedModels++; }));
+    }
+  });
+  const previousDisposals = disposedModels;
+  testScene.setVehicle(id, 'trail');
+  testScene.frame(1 / 60, emptyControls(), 'low');
+  assert(disposedModels > previousDisposals, 'Switching vehicle releases the previous model geometry');
+  assert.equal(renderedScene.children.filter(object => vehicleList.some(spec => object.name === spec.name)).length, 1, 'Only the selected vehicle remains in the scene');
+  assert(renderedScene.children.some(object => object.name === vehicleList.find(spec => spec.id === id).name), 'Scene displays the selected vehicle');
+}
+assert.equal(testScene.toggleCamera(), 1); assert.equal(testScene.toggleCamera(), 2);
+testScene.setVehicle('rally', 'garage');
+assert.equal(testScene.toggleCamera(), 0, 'Vehicle changes preserve the active camera mode');
+testScene.frame(1 / 60, emptyControls());
+function networkPlayer(id, vehicleId, x, revision = 1) {
+  const simulation = createPhysics(vehicleId);
+  simulation.reset({ x, y: 2, z: 0, yaw: 0 });
+  const value = {
+    id, name: id, vehicleId, gearing: 'high', revision, speed: 0, reverse: false,
+    body: { position: { ...simulation.chassis.position }, quaternion: { ...simulation.chassis.quaternion } },
+    wheels: simulation.getWheelTransforms(false).map(wheel => ({ position: { ...wheel.position }, quaternion: { ...wheel.quaternion } })),
+  };
+  simulation.dispose(); return value;
+}
+testScene.setNetworkSnapshot({ version: 1, tick: 10, players: [networkPlayer('own', 'jeep', 0), networkPlayer('friend', 'crawler', 8)] }, 'own');
+testScene.frame(1 / 60, emptyControls());
+assert(renderedScene.children.some(object => object.name === 'Rocha Crawler' && object.position.x === 8), 'Remote vehicle renders from server snapshots');
+testScene.setNetworkSnapshot({ version: 1, tick: 11, players: [networkPlayer('own', 'rally', -35, 2), networkPlayer('friend', 'crawler', 8)] }, 'own');
+testScene.frame(1 / 60, emptyControls());
+assert(renderedScene.children.some(object => object.name === 'Vale Rally' && object.position.x === -35), 'Vehicle changes and teleports do not interpolate through the map');
+testScene.setNetworkSnapshot({ version: 1, tick: 12, players: [networkPlayer('own', 'rally', -35, 2)] }, 'own');
+testScene.frame(1 / 60, emptyControls());
+assert(!renderedScene.children.some(object => object.name === 'Rocha Crawler'), 'Remote vehicle is removed after leaving');
+testScene.leaveNetwork('jeep'); testScene.frame(1 / 60, emptyControls());
+assert.equal(renderedScene.children.filter(object => vehicleList.some(spec => object.name === spec.name)).length, 1, 'Leaving multiplayer restores one local vehicle');
+testScene.dispose();
+console.log('Scene checks passed: repeated vehicle swaps, geometry disposal, one active model, camera preservation.');
 
 for (const fps of [30, 60, 120, 144]) {
   const rollingCar = createPhysics();

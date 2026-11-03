@@ -43,6 +43,7 @@ Abre duas instâncias web do jogo. Em **Online**, usa `http://localhost:2567`, c
 ## Comportamento
 
 - Cada jogador entra com o veículo selecionado. **Veículos** permite trocar de modelo e escolher entre o plano e a pista, com uma posição inicial diferente para cada jogador.
+- **Circuito** leva cada jogador à sua posição na grelha do Circuito da Serra, em High. Os quatro lugares são separados e as barreiras usam o mesmo traçado no servidor e no jogo. A versão do protocolo é 2: publica o servidor e o site atualizados para usarem o mesmo mapa.
 - Os comandos e Low/High são enviados ao servidor; os clientes não escolhem a sua posição. A força dos travões, limites de velocidade e terreno são os mesmos do modo individual.
 - Ao abrir um menu ou colocar a aplicação em segundo plano, os comandos desse jogador são libertados. A sala continua a simular para os restantes jogadores.
 - Após uma quebra de rede, o cliente tenta voltar automaticamente à mesma sessão. O servidor reserva o lugar por 15 segundos. Se não recuperar, podes voltar a entrar manualmente com o código enquanto a sala existir.

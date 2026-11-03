@@ -1,11 +1,12 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { groundClearance, vehicleList, type VehicleId } from '@/game/vehicles';
+import type { TestLocation } from '@/game/network-types';
 
 type Props = {
   visible: boolean;
   current: VehicleId;
   onClose: () => void;
-  onTest: (id: VehicleId, location: 'garage' | 'trail') => void;
+  onTest: (id: VehicleId, location: TestLocation) => void;
 };
 
 export default function VehicleGarage({ visible, current, onClose, onTest }: Props) {
@@ -39,8 +40,11 @@ export default function VehicleGarage({ visible, current, onClose, onTest }: Pro
             <Text style={styles.benefit}>{spec.benefit}</Text>
             <Text style={styles.tradeoff}>{spec.tradeoff}</Text>
             <View style={styles.buttons}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} no circuito de corridas em High`} onPress={() => onTest(spec.id, 'race')} style={styles.testFlat}>
+                <Text style={styles.testFlatText}>Circuito de corridas · HIGH</Text>
+              </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} na pista em Low`} onPress={() => onTest(spec.id, 'trail')} style={styles.testTrail}>
-                <Text style={styles.testTrailText}>Testar na pista · LOW</Text>
+                <Text style={styles.testTrailText}>Terreno difícil · LOW</Text>
               </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} no plano em High`} onPress={() => onTest(spec.id, 'garage')} style={styles.testFlat}>
                 <Text style={styles.testFlatText}>Testar no plano · HIGH</Text>

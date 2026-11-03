@@ -47,6 +47,17 @@ async function run() {
     await waitFor(() => latest?.players.length === 4, 'four synchronized players');
     assert.equal(new Set(latest.players.map(player => player.body.position.x)).size, 4, 'Players spawn in separate slots');
     assert.deepEqual(new Set(latest.players.map(player => player.vehicleId)), new Set(['jeep', 'crawler', 'rally']));
+    const gridRevisions = new Map(latest.players.map(player => [player.id, player.revision]));
+    for (const room of rooms) room.send('reset', 'race');
+    await waitFor(() => latest.players.every(player => player.revision > gridRevisions.get(player.id) && player.body.position.x > 60 && player.body.position.x < 80), 'four players reach the race grid');
+    assert(latest.players.every(player => player.gearing === 'high'), 'Circuit entry selects High on the server');
+    for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) {
+      const first = latest.players[a].body.position; const second = latest.players[b].body.position;
+      assert(Math.hypot(first.x - second.x, first.z - second.z) > 5, 'Race grid slots do not overlap');
+    }
+    await new Promise(resolve => setTimeout(resolve, 450));
+    for (const room of rooms) room.send('reset', 'garage');
+    await waitFor(() => latest.players.every(player => Math.abs(player.body.position.x) < 10), 'return from the circuit to the garage');
     await assert.rejects(client.joinById(first.roomId, options), /full|locked|maxClients/i);
     await assert.rejects(client.joinById('00000000', options));
     await assert.rejects(client.create(ROOM_NAME, { ...options, version: 999 }), /versão/);
@@ -91,7 +102,7 @@ async function run() {
     controller.leave();
     await waitFor(() => latest.players.length === 3, 'app client leaves cleanly');
     assert.equal(status.phase, 'offline');
-    console.log('Multiplayer checks passed: shared-world collisions, 4 players, private codes, full/missing rooms, protocol version, room isolation, authoritative movement, stale input release, vehicle changes, automatic reconnection, clean leave.');
+    console.log('Multiplayer checks passed: shared-world collisions, 4 players, race grid and return, private codes, full/missing rooms, protocol version, room isolation, authoritative movement, stale input release, vehicle changes, automatic reconnection, clean leave.');
   } finally {
     if (inputTimer) clearInterval(inputTimer);
     controller?.dispose();

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Room, ServerError, type Client } from '@colyseus/core';
 import { createPhysics, createPhysicsWorld, emptyControls, type Controls, type Gearing } from '../src/game/physics';
-import { isVehicleId, MAX_PLAYERS, NETWORK_VERSION, type PlayerSnapshot, type RoomSnapshot, type TestLocation } from '../src/game/network-types';
+import { isTestLocation, isVehicleId, MAX_PLAYERS, NETWORK_VERSION, type PlayerSnapshot, type RoomSnapshot, type TestLocation } from '../src/game/network-types';
 import type { VehicleId } from '../src/game/vehicles';
 
 type Player = {
@@ -41,13 +41,13 @@ export class DriveRoom extends Room {
       const player = this.players.get(client.sessionId);
       if (!player || !this.actionAllowed(player) || !payload || typeof payload !== 'object') return;
       const value = payload as Record<string, unknown>;
-      if (!isVehicleId(value.vehicleId) || (value.location !== 'garage' && value.location !== 'trail')) return;
+      if (!isVehicleId(value.vehicleId) || !isTestLocation(value.location)) return;
       player.car.dispose(); player.vehicleId = value.vehicleId; player.car = createPhysics(value.vehicleId, this.world);
       this.respawn(player, value.location);
     });
     this.onMessage('reset', (client, location: unknown) => {
       const player = this.players.get(client.sessionId);
-      if (player && this.actionAllowed(player) && (location === 'garage' || location === 'trail')) this.respawn(player, location);
+      if (player && this.actionAllowed(player) && isTestLocation(location)) this.respawn(player, location);
     });
     this.onMessage('ping', (client, sent: unknown) => {
       const player = this.players.get(client.sessionId);
@@ -122,7 +122,8 @@ export class DriveRoom extends Room {
 
   private respawn(player: Player, location: TestLocation) {
     const x = (player.slot - 1.5) * 4;
-    player.car.reset({ x: location === 'trail' ? -35 + x : x, y: 1.5, z: 6, yaw: location === 'trail' ? 0 : -0.35 });
+    if (location === 'race') player.car.startRace(player.slot);
+    else player.car.reset({ x: location === 'trail' ? -35 + x : x, y: 1.5, z: 6, yaw: location === 'trail' ? 0 : -0.35 });
     player.gearing = location === 'trail' ? 'low' : 'high';
     player.controls = emptyControls(); player.revision++;
   }

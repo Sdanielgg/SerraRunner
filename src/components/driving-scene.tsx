@@ -9,7 +9,7 @@ import { vehicles, type VehicleId } from '@/game/vehicles';
 import VehicleGarage from './vehicle-garage';
 import OnlineMenu from './online-menu';
 import { createMultiplayerClient, offlineStatus } from '@/game/multiplayer-client';
-import type { RoomSnapshot } from '@/game/network-types';
+import type { RoomSnapshot, TestLocation } from '@/game/network-types';
 import { nearbyEngines } from '@/game/engine-audio';
 import { useEngineSounds } from '@/hooks/use-engine-sounds';
 
@@ -40,6 +40,8 @@ export default function DrivingScene() {
   const [camera, setCamera] = useState(0);
   const selectedVehicle = useRef<VehicleId>('jeep');
   const [vehicleId, setVehicleId] = useState<VehicleId>('jeep');
+  const [location, setLocation] = useState<TestLocation>('garage');
+  const resetLocation = useRef<TestLocation>('garage');
   const garageVisible = useRef(false);
   const [garageOpen, setGarageOpen] = useState(false);
   const gearingRef = useRef<Gearing>('high');
@@ -58,8 +60,10 @@ export default function DrivingScene() {
   const reset = useCallback(() => {
     if (onlineState.current.room && onlineState.current.phase !== 'online') return;
     clearInput();
-    if (onlineState.current.room) { selectGearing('high'); network.current?.reset('garage'); }
+    if (onlineState.current.room) { selectGearing('high'); network.current?.reset(resetLocation.current); }
+    else if (resetLocation.current === 'race') scene.current?.startRace();
     else scene.current?.reset();
+    setLocation(resetLocation.current);
     setTelemetry({ speed: 0, reverse: false });
   }, [clearInput, selectGearing]);
   const startTrail = useCallback(() => {
@@ -67,7 +71,16 @@ export default function DrivingScene() {
     clearInput();
     if (onlineState.current.room) network.current?.reset('trail');
     else scene.current?.startTrail();
+    resetLocation.current = 'garage'; setLocation('trail');
     selectGearing('low'); setTelemetry({ speed: 0, reverse: false });
+  }, [clearInput, selectGearing]);
+  const startRace = useCallback(() => {
+    if (onlineState.current.room && onlineState.current.phase !== 'online') return;
+    clearInput();
+    if (onlineState.current.room) network.current?.reset('race');
+    else scene.current?.startRace();
+    resetLocation.current = 'race'; setLocation('race');
+    selectGearing('high'); setTelemetry({ speed: 0, reverse: false });
   }, [clearInput, selectGearing]);
   const toggleCamera = useCallback(() => {
     const mode = scene.current?.toggleCamera();
@@ -86,13 +99,14 @@ export default function DrivingScene() {
   const closeOnlineMenu = useCallback(() => {
     clearInput(); onlineMenuVisible.current = false; setOnlineMenuOpen(false);
   }, [clearInput]);
-  const testVehicle = useCallback((id: VehicleId, location: 'garage' | 'trail') => {
+  const testVehicle = useCallback((id: VehicleId, location: TestLocation) => {
     if (!scene.current) return;
     if (onlineState.current.room && onlineState.current.phase !== 'online') return;
     clearInput();
     if (onlineState.current.room) network.current?.selectVehicle(id, location);
     else scene.current.setVehicle(id, location);
     selectedVehicle.current = id; setVehicleId(id);
+    resetLocation.current = location === 'race' ? 'race' : 'garage'; setLocation(location);
     selectGearing(location === 'trail' ? 'low' : 'high');
     setTelemetry({ speed: 0, reverse: false }); closeGarage();
   }, [clearInput, closeGarage, selectGearing]);
@@ -101,6 +115,7 @@ export default function DrivingScene() {
     network.current = createMultiplayerClient(status => {
       if ((status.phase === 'offline' || status.phase === 'error') && onlineState.current.room) {
         scene.current?.leaveNetwork(selectedVehicle.current); lastNetworkState.current = null;
+        resetLocation.current = 'garage'; setLocation('garage');
       }
       if (status.phase === 'connecting') networkRevision.current = -1;
       onlineState.current = status; setOnline(status);
@@ -109,6 +124,7 @@ export default function DrivingScene() {
       scene.current?.setNetworkSnapshot(snapshot, sessionId);
       const own = snapshot.players.find(player => player.id === sessionId);
       if (own) {
+        if (networkRevision.current === -1) { resetLocation.current = 'garage'; setLocation('garage'); }
         if (selectedVehicle.current !== own.vehicleId) { selectedVehicle.current = own.vehicleId; setVehicleId(own.vehicleId); }
         if (networkRevision.current !== own.revision) {
           networkRevision.current = own.revision; selectGearing(own.gearing);
@@ -139,6 +155,7 @@ export default function DrivingScene() {
       if (event.key.toLowerCase() === 'h') selectGearing('high');
       if (event.key.toLowerCase() === 'c' && !event.repeat) toggleCamera();
       if (event.key.toLowerCase() === 't' && !event.repeat) startTrail();
+      if (event.key.toLowerCase() === 'p' && !event.repeat) startRace();
       if (event.key.toLowerCase() === 'v' && !event.repeat) openGarage();
       if (event.key.toLowerCase() === 'm' && !event.repeat) openOnlineMenu();
     };
@@ -153,7 +170,7 @@ export default function DrivingScene() {
     return () => {
       subscription.remove(); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('blur', blur); window.removeEventListener('focus', focus);
     };
-  }, [clearInput, reset, selectGearing, startTrail, toggleCamera, openGarage, closeGarage, openOnlineMenu, closeOnlineMenu, unlockSound, silenceSound]);
+  }, [clearInput, reset, selectGearing, startTrail, startRace, toggleCamera, openGarage, closeGarage, openOnlineMenu, closeOnlineMenu, unlockSound, silenceSound]);
   useEffect(() => () => { cancelAnimationFrame(animation.current); scene.current?.dispose(); scene.current = null; }, []);
 
   const onContextCreate = useCallback((gl: ExpoWebGLRenderingContext) => {
@@ -161,6 +178,7 @@ export default function DrivingScene() {
     try {
       const world = createScene(gl, selectedVehicle.current); scene.current = world;
       if (lastNetworkState.current) world.setNetworkSnapshot(lastNetworkState.current.snapshot, lastNetworkState.current.sessionId);
+      else if (resetLocation.current === 'race') world.startRace();
       setCamera(0);
       let previous = 0; let lastUpdate = 0;
       const frame = (time: number) => {
@@ -249,7 +267,7 @@ export default function DrivingScene() {
     <View pointerEvents="box-none" style={[styles.overlay, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 18), paddingLeft: Math.max(insets.left, 20), paddingRight: Math.max(insets.right, 20) }]}>
       <View style={styles.top} pointerEvents="box-none">
         <View pointerEvents="box-none">
-        <View pointerEvents="none"><Text style={styles.eyebrow}>SERRA / GARAGEM 01</Text><Text style={styles.title}>Terra livre.</Text><View style={styles.badge}><View style={[styles.dot, { backgroundColor: vehicles[vehicleId].color }]} /><Text style={styles.badgeText}>{vehicles[vehicleId].name.toUpperCase()} · {vehicles[vehicleId].category.toUpperCase()}</Text></View></View>
+        <View pointerEvents="none"><Text style={styles.eyebrow}>{location === 'race' ? 'SERRA / CIRCUITO' : location === 'trail' ? 'SERRA / TERRENO' : 'SERRA / GARAGEM 01'}</Text><Text style={styles.title}>{location === 'race' ? 'Circuito.' : 'Terra livre.'}</Text><View style={styles.badge}><View style={[styles.dot, { backgroundColor: vehicles[vehicleId].color }]} /><Text style={styles.badgeText}>{vehicles[vehicleId].name.toUpperCase()} · {vehicles[vehicleId].category.toUpperCase()}</Text></View></View>
           {online.room && <Text selectable style={styles.onlineRoom}>SALA {online.room.code} · {online.room.players.length}/4{online.ping !== null ? ` · ${online.ping} ms` : ''}</Text>}
           {online.phase === 'reconnecting' && <Text style={styles.onlineRoom}>A tentar restabelecer a ligação…</Text>}
           {online.phase === 'error' && <Text style={styles.onlineRoom}>Ligação terminada · abre Online para voltar a entrar.</Text>}
@@ -270,6 +288,7 @@ export default function DrivingScene() {
           <Pressable accessibilityRole="button" accessibilityLabel={muted ? 'Ativar som dos motores' : 'Silenciar motores'} accessibilityState={{ selected: !muted }} onPress={toggleSound} style={styles.action}><Text style={styles.actionText}>{muted ? 'Som: desligado' : 'Som: ligado'}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir multiplayer online" disabled={!ready} onPress={openOnlineMenu} style={styles.action}><Text style={styles.actionText}>{online.room ? 'Sala online' : 'Online'}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir garagem e escolher veículo" disabled={!ready} onPress={openGarage} style={styles.action}><Text style={styles.actionText}>Veículos</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Entrar no circuito de corridas em High" disabled={!ready} onPress={startRace} style={[styles.action, styles.raceAction]}><Text style={styles.actionText}>Circuito</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Mudar câmara" onPress={toggleCamera} style={styles.action}><Text style={styles.actionText}>{['Câmara 1', 'Câmara 2', 'Livre · arrastar'][camera]}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Ir para a pista de terreno difícil" onPress={startTrail} style={styles.action}><Text style={styles.actionText}>Testar terreno</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Repor carro" onPress={reset} style={styles.action}><Text style={styles.actionText}>↺ Repor</Text></Pressable>
@@ -288,7 +307,7 @@ export default function DrivingScene() {
           <View style={styles.readout} pointerEvents="none"><Text style={styles.speed}>{Math.round(telemetry.speed).toString().padStart(2, '0')}<Text style={styles.unit}> km/h</Text></Text><Text style={styles.gear}>{telemetry.reverse ? 'R · MARCHA-ATRÁS' : 'D · TRAÇÃO 4×4'}</Text></View>
           <View style={styles.cluster}>{pedal('reverse', '↓', 'Recuar')}{pedal('brake', 'Ⅱ', 'Travar')}{pedal('throttle', '↑', 'Acelerar', true)}</View>
         </View>
-        <Text style={styles.hint} pointerEvents="none">{camera === 2 ? 'Arrasta na zona livre do ecrã para rodar a câmara à volta do veículo.' : Platform.OS === 'web' ? 'WASD / setas · Espaço trava · L / H gearing · C câmara · T terreno · V veículos · M online · R repor' : 'Online: cria uma sala ou entra com o código dos teus amigos.'}</Text>
+        <Text style={styles.hint} pointerEvents="none">{camera === 2 ? 'Arrasta na zona livre do ecrã para rodar a câmara à volta do veículo.' : Platform.OS === 'web' ? 'WASD / setas · Espaço trava · L / H gearing · C câmara · P circuito · T terreno · V veículos · M online · R repor' : 'Online: cria uma sala ou entra com o código dos teus amigos.'}</Text>
       </View>
     </View>
     <VehicleGarage visible={garageOpen} current={vehicleId} onClose={closeGarage} onTest={testVehicle} />
@@ -312,6 +331,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', flexWrap: 'wrap', flexShrink: 1, maxWidth: '50%', justifyContent: 'flex-end', gap: 8 },
   action: { backgroundColor: '#f5f3e5dc', borderRadius: 22, paddingVertical: 12, paddingHorizontal: 15, borderWidth: 1, borderColor: '#ffffff80' },
   actionText: { color: '#30483d', fontSize: 11, fontWeight: '700' },
+  raceAction: { backgroundColor: '#e6bd6a', borderColor: '#fff2c0' },
   bottom: { gap: 12 },
   gearingSelector: { alignSelf: 'flex-start', marginTop: 12, flexDirection: 'row', gap: 4, padding: 4, borderRadius: 18, backgroundColor: '#273f37e8' },
   gearingOption: { minWidth: 104, minHeight: 48, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 2 },

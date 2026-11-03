@@ -277,6 +277,51 @@ for (const spec of vehicleList) for (const roll of [-Math.PI / 2, Math.PI / 2]) 
 }
 console.log('Uneven terrain checks passed: physical tyre width, bank contact with steering, crests, rollover tyre collisions, local/server poses at 30/60/144 fps.');
 
+const { raceSamples, raceBarriers, raceSpawn, raceLength, raceTrack } = loadGameModule('race-track');
+assert(raceLength > 350 && raceLength < 500, 'Circuit has a full-length closed lap');
+for (let i = 0; i < raceSamples.length; i++) {
+  const point = raceSamples[i]; const next = raceSamples[(i + 1) % raceSamples.length];
+  assert(Math.hypot(next.x - point.x, next.z - point.z) < 4, 'Road joins continuously, including the closing segment');
+  const angle = Math.acos(Math.max(-1, Math.min(1, point.dx * next.dx + point.dz * next.dz)));
+  const radius = angle < 1e-6 ? Infinity : Math.hypot(next.x - point.x, next.z - point.z) / angle;
+  assert(radius > raceTrack.barrierOffset + 1, 'Tight curves leave room for both road edges and barriers');
+}
+for (const spec of vehicleList) {
+  const racer = createPhysics(spec.id); racer.startRace(); simulate(racer, 2);
+  assert.equal(racer.vehicle.numWheelsOnGround, 4, `${spec.name}: circuit grid supports all wheels`);
+  for (const rail of raceBarriers.filter((_, i) => i % 30 === 0)) {
+    const hit = new RaycastResult();
+    assert(racer.world.raycastClosest(new Vec3(rail.x, 5, rail.z), new Vec3(rail.x, -1, rail.z), {}, hit));
+    assert(Math.abs(hit.hitPointWorld.y - rail.height) < 1e-5, 'Rendered barriers have matching physical collision heights');
+  }
+  // Follow the actual road with normal steering/throttle commands. This catches
+  // gaps, pinched curves and collisions intruding into the racing surface.
+  let previous = 0; let progress = 0; let maximumError = 0; let barrierContacts = 0;
+  for (let tick = 0; tick < 60 * 80 && progress < raceSamples.length; tick++) {
+    let nearest = 0; let distance = Infinity;
+    raceSamples.forEach((point, i) => {
+      const error = Math.hypot(point.x - racer.chassis.position.x, point.z - racer.chassis.position.z);
+      if (error < distance) { nearest = i; distance = error; }
+    });
+    const advance = (nearest - previous + raceSamples.length) % raceSamples.length;
+    if (advance < 10) progress += advance;
+    previous = nearest; maximumError = Math.max(maximumError, distance);
+    const target = raceSamples[(nearest + 4) % raceSamples.length];
+    const local = racer.chassis.quaternion.conjugate().vmult(new Vec3(target.x - racer.chassis.position.x, 0, target.z - racer.chassis.position.z));
+    const steeringError = Math.atan2(local.x, -local.z); const speed = racer.chassis.velocity.length();
+    racer.step(1 / 60, { ...emptyControls(), left: steeringError < -0.04, right: steeringError > 0.04, throttle: speed < 7, brake: speed > 8 });
+    if (racer.world.contacts.some(contact => contact.bi === racer.chassis || contact.bj === racer.chassis)) barrierContacts++;
+  }
+  assert(progress >= raceSamples.length, `${spec.name}: completes a full circuit lap under normal vehicle physics`);
+  assert(maximumError < 4 && barrierContacts === 0, `${spec.name}: the full lap stays on the road without striking barriers`);
+  racer.dispose();
+}
+for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) {
+  const first = raceSpawn(a); const second = raceSpawn(b);
+  assert(Math.hypot(first.x - second.x, first.z - second.z) > 5, 'Four-player grid spaces vehicles safely apart');
+}
+console.log(`Race circuit checks passed: ${Math.round(raceLength)} m lap, barrier geometry, four grid slots, full clean laps with all three vehicles.`);
+
 // Exercise real scene objects and vehicle swaps without requiring a GPU in CI.
 let renderedScene;
 class TestRenderer {
@@ -290,6 +335,9 @@ const { createScene } = loadGameModule('scene', { three: { ...THREE, WebGLRender
 const testScene = createScene({ drawingBufferWidth: 800, drawingBufferHeight: 400, endFrameEXP() {} });
 testScene.frame(1 / 60, emptyControls());
 assert(renderedScene.children.some(object => object.name === 'Serra 4×4'), 'Scene starts with the default model');
+assert(renderedScene.children.some(object => object.name === 'Circuito da Serra'), 'Scene includes the circuit geometry');
+testScene.startRace(); testScene.frame(1 / 60, emptyControls());
+assert(renderedScene.children.some(object => object.name === 'Serra 4×4' && object.position.x > 60), 'Circuit action moves the current model to the grid');
 let disposedModels = 0;
 for (const id of ['crawler', 'rally', 'jeep', 'crawler']) {
   renderedScene.traverse(object => {
@@ -298,11 +346,12 @@ for (const id of ['crawler', 'rally', 'jeep', 'crawler']) {
     }
   });
   const previousDisposals = disposedModels;
-  testScene.setVehicle(id, 'trail');
+  testScene.setVehicle(id, id === 'rally' ? 'race' : 'trail');
   testScene.frame(1 / 60, emptyControls(), 'low');
   assert(disposedModels > previousDisposals, 'Switching vehicle releases the previous model geometry');
   assert.equal(renderedScene.children.filter(object => vehicleList.some(spec => object.name === spec.name)).length, 1, 'Only the selected vehicle remains in the scene');
   assert(renderedScene.children.some(object => object.name === vehicleList.find(spec => spec.id === id).name), 'Scene displays the selected vehicle');
+  if (id === 'rally') assert(renderedScene.children.some(object => object.name === 'Vale Rally' && object.position.x > 60), 'Garage vehicle changes can enter the racing circuit');
 }
 assert.equal(testScene.toggleCamera(), 1); assert.equal(testScene.toggleCamera(), 2);
 testScene.setVehicle('rally', 'garage');

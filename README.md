@@ -1,6 +1,6 @@
 ﻿# Serra Runner — Jeep low poly
 
-Cena de condução livre para telemóvel, feita em Expo SDK 58. Inclui uma garagem plana e uma pista de terreno difícil para testar três veículos 3D, sem corridas, missões ou pontuações.
+Jogo de condução para telemóvel e navegador, feito em Expo SDK 58. Inclui uma garagem plana, uma pista de terreno difícil e um circuito de corridas para testar três veículos 3D, a solo ou com amigos.
 
 ## Abrir
 
@@ -42,6 +42,7 @@ Para verificar a exportação antes de publicar, usa `npm run web:build`: gera `
 - Gearing: seleciona **LOW** ou **HIGH** no ecrã; no computador, usa L ou H. Low dá mais força e limita a velocidade a cerca de 32 km/h (14 km/h em marcha-atrás). High é o modo inicial e mantém os limites de 83 e 29 km/h. Podes alternar durante a condução; o jeep desacelera naturalmente se estiver acima do limite de Low. Repor mantém o modo selecionado.
 - Câmara: alterna entre vista de três quartos, traseira e **Livre** (tecla C no computador). Em Livre, arrasta numa zona livre do ecrã com o dedo ou rato para orbitar à volta do jeep. A orientação mantém-se quando o carro vira; podes continuar a usar os pedais com outros dedos. A altura da câmara acompanha o relevo.
 - **Testar terreno** (tecla T): coloca o jeep na entrada da pista e seleciona Low. Segue as bandeiras: rampa de 4 m, lombas desencontradas para testar a articulação da suspensão e subida de 7 m com inclinação lateral. Também podes conduzir até à pista, à esquerda da garagem. O relevo visual e as colisões usam a mesma grelha de alturas.
+- **Circuito** (tecla P): entra no Circuito da Serra em High. Percurso fechado de aproximadamente 400 m, com asfalto de 12 m de largura, reta de partida, curvas rápidas, zona em S, pianos vermelhos/brancos, setas de direção e barreiras com colisão. A grelha tem quatro lugares, usados também no multiplayer. No circuito, **Repor** (R) regressa à grelha. A ligação por estrada à direita da garagem permite entrar a conduzir.
 - Repor: recoloca o jeep na posição inicial, incluindo se capotar.
 - Som: o botão **Som: ligado/desligado** ativa ou silencia os motores. O som começa depois da primeira interação com o jogo.
 
@@ -86,6 +87,8 @@ O contacto da suspensão considera o contorno e a largura dos pneus para detetar
 - `src/game/jeep.ts`: modelo e materiais.
 - `src/game/vehicles.ts`: características e afinação dos três veículos.
 - `src/game/physics.ts`: física, suspensão e comandos.
+- `src/game/race-track.ts`: traçado, grelha e colisões do circuito partilhados com o servidor.
+- `src/game/race-track-scene.ts`: asfalto, pianos, barreiras, marcações e pórtico da partida.
 - `src/game/chassis-shape.ts`: colisor do chassis com extremidades inferiores chanfradas.
 - `src/game/terrain-vehicle.ts`: contactos dos pneus com largura e contorno.
 - `src/game/wheel-terrain.ts`: ajuste visual das rodas ao terreno após interpolação.

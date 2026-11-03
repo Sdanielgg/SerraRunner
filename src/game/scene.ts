@@ -6,7 +6,8 @@ import { createOrbitCamera } from './orbit-camera';
 import { terrainHeightAt, terrainHeights, trail } from './terrain';
 import { vehicles, type VehicleId } from './vehicles';
 import { fitWheelToTerrain } from './wheel-terrain';
-import type { PlayerSnapshot, Pose, RoomSnapshot } from './network-types';
+import type { PlayerSnapshot, Pose, RoomSnapshot, TestLocation } from './network-types';
+import { createRaceTrack } from './race-track-scene';
 
 export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: VehicleId = 'jeep') {
   // Native GL has no DOM canvas. Three only needs this small surface adapter.
@@ -23,6 +24,7 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearColor('#c8d7ce');
   const scene = new THREE.Scene();
+  scene.add(createRaceTrack());
   scene.fog = new THREE.Fog('#c8d7ce', 65, 180);
   const camera = new THREE.PerspectiveCamera(46, gl.drawingBufferWidth / gl.drawingBufferHeight, 0.1, 280);
   scene.add(new THREE.HemisphereLight('#fff7dc', '#677f67', 2.4));
@@ -204,7 +206,7 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
   }
   return {
     frame,
-    setVehicle(id: VehicleId, location: 'garage' | 'trail') {
+    setVehicle(id: VehicleId, location: TestLocation) {
       const oldObjects = [jeep.body, ...jeep.wheels];
       scene.remove(...oldObjects); disposeObjects(oldObjects);
       physics.dispose();
@@ -212,6 +214,7 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
       visualVehicle = id;
       scene.add(jeep.body, ...jeep.wheels);
       if (location === 'trail') physics.startTrail();
+      if (location === 'race') physics.startRace();
       snapCamera = true; orbit.cancel();
     },
     setNetworkSnapshot(snapshot: RoomSnapshot, sessionId: string) {
@@ -232,6 +235,7 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
     },
     reset() { physics.reset(); snapCamera = true; },
     startTrail() { physics.startTrail(); snapCamera = true; orbit.cancel(); },
+    startRace() { physics.startRace(); snapCamera = true; orbit.cancel(); },
     toggleCamera() { cameraMode = (cameraMode + 1) % 3; snapCamera = true; orbit.cancel(); return cameraMode; },
     beginCameraDrag(id: number, x: number, y: number) { if (cameraMode === 2) orbit.begin(id, x, y); },
     moveCameraDrag(id: number, x: number, y: number) { if (cameraMode === 2) orbit.move(id, x, y); },

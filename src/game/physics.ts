@@ -4,6 +4,7 @@ import { TerrainVehicle } from './terrain-vehicle';
 import { vehicles, type VehicleId } from './vehicles';
 import { fitWheelToTerrain } from './wheel-terrain';
 import { createChassisShape } from './chassis-shape';
+import { addRaceTrackCollisions, raceSpawn } from './race-track';
 
 export type Controls = { left: boolean; right: boolean; throttle: boolean; reverse: boolean; brake: boolean };
 export const emptyControls = (): Controls => ({ left: false, right: false, throttle: false, reverse: false, brake: false });
@@ -68,6 +69,7 @@ export function createPhysicsWorld() {
     terrain.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
     world.addBody(terrain);
   }
+  addRaceTrackCollisions(world, terrainMaterial);
   return world;
 }
 
@@ -197,6 +199,7 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
   return {
     world, chassis, vehicle, step, reset, getWheelTransforms, applyControls, getTelemetry,
     startTrail() { reset(trailStart); },
+    startRace(slot = 0) { reset(raceSpawn(slot)); },
     dispose() { world.removeEventListener('postStep', recordWheels); vehicle.removeFromWorld(world); },
   };
 }

@@ -1,10 +1,11 @@
 import type { Controls, Gearing } from './physics';
 import type { VehicleId } from './vehicles';
 
-export const NETWORK_VERSION = 1;
+// Clients and servers must agree on the circuit and its physical barriers.
+export const NETWORK_VERSION = 2;
 export const MAX_PLAYERS = 4;
 export const ROOM_NAME = 'serra_drive';
-export type TestLocation = 'garage' | 'trail';
+export type TestLocation = 'garage' | 'trail' | 'race';
 export type Vector = { x: number; y: number; z: number };
 export type Rotation = Vector & { w: number };
 export type Pose = { position: Vector; quaternion: Rotation };
@@ -18,6 +19,10 @@ export type RoomInfo = { code: string; sessionId: string; players: { id: string;
 
 export function isVehicleId(value: unknown): value is VehicleId {
   return value === 'jeep' || value === 'crawler' || value === 'rally';
+}
+
+export function isTestLocation(value: unknown): value is TestLocation {
+  return value === 'garage' || value === 'trail' || value === 'race';
 }
 
 export function serverAddress(value: string) {

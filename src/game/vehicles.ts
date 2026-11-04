@@ -13,7 +13,7 @@ export type VehicleSpec = {
 
 export const vehicles: Record<VehicleId, VehicleSpec> = {
   jeep: {
-    id: 'jeep', name: 'Serra 4×4', category: 'Equilibrado', color: '#d5a14e',
+    id: 'jeep', name: 'Serra 4×4', category: 'Equilibrado', color: '#526a59',
     benefit: 'Um compromisso entre velocidade, altura ao solo e suspensão.',
     tradeoff: 'Menos capaz nas lombas que o Crawler e mais lento que o Rally.',
     mass: 700, widthScale: 1, heightScale: 1, lengthScale: 1,
@@ -24,7 +24,7 @@ export const vehicles: Record<VehicleId, VehicleSpec> = {
     low: { engineForce: 3000, forwardLimit: 9, reverseLimit: 4 },
   },
   crawler: {
-    id: 'crawler', name: 'Rocha Crawler', category: 'Todo-o-terreno', color: '#718a57',
+    id: 'crawler', name: 'Rocha Crawler', category: 'Todo-o-terreno', color: '#79a53b',
     benefit: 'Rodas grandes, mais altura ao solo e maior curso de suspensão para transpor obstáculos.',
     tradeoff: 'Mais pesado e lento; a carroçaria alta exige cuidado nas inclinações laterais.',
     mass: 1000, widthScale: 1.15, heightScale: 1.08, lengthScale: 1.1,
@@ -35,7 +35,7 @@ export const vehicles: Record<VehicleId, VehicleSpec> = {
     low: { engineForce: 3600, forwardLimit: 6, reverseLimit: 3 },
   },
   rally: {
-    id: 'rally', name: 'Vale Rally', category: 'Velocidade', color: '#bd5948',
+    id: 'rally', name: 'Vale Rally', category: 'Velocidade', color: '#c6242d',
     benefit: 'Leve, rápido e baixo, com suspensão firme e boa estabilidade em terreno plano.',
     tradeoff: 'Menos altura ao solo: pode raspar o fundo e perder contacto nas lombas mais difíceis.',
     mass: 600, widthScale: 1.08, heightScale: 0.68, lengthScale: 1.06,

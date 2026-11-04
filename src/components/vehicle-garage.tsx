@@ -1,4 +1,6 @@
+import { GameUI as ui } from '@/constants/game-ui';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { groundClearance, vehicleList, type VehicleId } from '@/game/vehicles';
 import type { TestLocation } from '@/game/network-types';
 
@@ -11,21 +13,22 @@ type Props = {
 
 export default function VehicleGarage({ visible, current, onClose, onTest }: Props) {
   return <Modal visible={visible} transparent animationType="fade" supportedOrientations={['landscape', 'portrait']} onRequestClose={onClose}>
-    <View style={styles.backdrop}>
+    <SafeAreaView style={styles.backdrop}>
       <View style={styles.panel}>
         <View style={styles.header}>
           <View style={styles.heading}>
-            <Text style={styles.eyebrow}>GARAGEM / {vehicleList.length} VEÍCULOS</Text>
-            <Text style={styles.title}>Escolhe o teu caminho.</Text>
-            <Text style={styles.subtitle}>Compara a altura ao solo e a velocidade. Testa todos no mesmo percurso.</Text>
+            <Text style={styles.eyebrow}>SERRA RUNNER / {vehicleList.length} VEÍCULOS</Text>
+            <Text style={styles.title}>Garagem</Text>
+            <Text style={styles.subtitle}>Escolhe o veículo e onde queres conduzir.</Text>
           </View>
           <Pressable accessibilityRole="button" accessibilityLabel="Fechar garagem" onPress={onClose} style={styles.close}>
-            <Text style={styles.closeText}>Fechar ×</Text>
+            <Text style={styles.closeText}>Fechar</Text>
           </Pressable>
         </View>
         <ScrollView style={styles.scroll} contentContainerStyle={styles.cards}>
-          {vehicleList.map(spec => <View key={spec.id} style={[styles.card, current === spec.id && styles.currentCard]}>
+          {vehicleList.map((spec, index) => <View key={spec.id} style={[styles.card, current === spec.id && styles.currentCard]}>
             <View style={styles.cardHeader}>
+              <Text style={styles.number}>{String(index + 1).padStart(2, '0')}</Text>
               <View style={[styles.swatch, { backgroundColor: spec.color }]} />
               <Text style={styles.category}>{spec.category.toUpperCase()}</Text>
               {current === spec.id && <Text style={styles.active}>EM USO</Text>}
@@ -41,52 +44,53 @@ export default function VehicleGarage({ visible, current, onClose, onTest }: Pro
             <Text style={styles.tradeoff}>{spec.tradeoff}</Text>
             <View style={styles.buttons}>
               <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} no circuito de corridas em High`} onPress={() => onTest(spec.id, 'race')} style={styles.testFlat}>
-                <Text style={styles.testFlatText}>Circuito de corridas · HIGH</Text>
+                <Text style={styles.testFlatText}>Circuito →</Text>
               </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} na pista em Low`} onPress={() => onTest(spec.id, 'trail')} style={styles.testTrail}>
-                <Text style={styles.testTrailText}>Terreno difícil · LOW</Text>
+                <Text style={styles.testTrailText}>Todo-o-terreno →</Text>
               </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} no plano em High`} onPress={() => onTest(spec.id, 'garage')} style={styles.testFlat}>
-                <Text style={styles.testFlatText}>Testar no plano · HIGH</Text>
+                <Text style={styles.testFlatText}>Condução livre →</Text>
               </Pressable>
             </View>
           </View>)}
         </ScrollView>
         <Text style={styles.note}>Valores aproximados em plano. A altura varia com a suspensão; podes mudar Low/High durante o teste.</Text>
       </View>
-    </View>
+    </SafeAreaView>
   </Modal>;
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: '#14261ee6', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  panel: { width: '100%', maxWidth: 980, maxHeight: '100%', backgroundColor: '#f1efdf', borderRadius: 24, padding: 20, gap: 16 },
+  backdrop: { flex: 1, backgroundColor: '#080b0de6', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  panel: { width: '100%', maxWidth: 1040, maxHeight: '100%', borderWidth: 1, borderColor: ui.border, backgroundColor: ui.background, borderRadius: 12, padding: 20, gap: 16 },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   heading: { flex: 1 },
-  eyebrow: { color: '#63785d', fontSize: 9, fontWeight: '800', letterSpacing: 2 },
-  title: { color: '#263f33', fontSize: 26, fontWeight: '800', marginTop: 4 },
-  subtitle: { color: '#5b6b59', fontSize: 12, marginTop: 5 },
-  close: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 14, backgroundColor: '#e0e2d2' },
-  closeText: { color: '#30483d', fontSize: 12, fontWeight: '700' },
+  eyebrow: { color: ui.muted, fontSize: 10, fontWeight: '600', letterSpacing: 2 },
+  title: { color: ui.text, fontSize: 26, fontWeight: '600', marginTop: 4 },
+  subtitle: { color: ui.muted, fontSize: 13, marginTop: 5 },
+  close: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 6, backgroundColor: ui.raised },
+  closeText: { color: ui.text, fontSize: 13, fontWeight: '700' },
   scroll: { flexShrink: 1 },
   cards: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, padding: 2 },
-  card: { flexGrow: 1, flexBasis: 250, padding: 16, borderWidth: 1, borderColor: '#d3d8c7', borderRadius: 18, backgroundColor: '#faf8ee', gap: 12 },
-  currentCard: { borderColor: '#67805b', borderWidth: 2, padding: 15 },
+  card: { flexGrow: 1, flexShrink: 1, flexBasis: 270, maxWidth: '100%', padding: 16, borderWidth: 1, borderColor: ui.border, borderRadius: 8, backgroundColor: ui.surface, gap: 12 },
+  currentCard: { borderColor: ui.accent, borderWidth: 1, padding: 16 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  number: { color: ui.muted, fontSize: 12, fontVariant: ['tabular-nums'], marginRight: 4 },
   swatch: { width: 12, height: 12, borderRadius: 4 },
-  category: { color: '#63715a', fontSize: 8, fontWeight: '800', letterSpacing: 1 },
-  active: { color: '#4d6e42', fontSize: 8, fontWeight: '800', marginLeft: 'auto' },
-  name: { color: '#263f33', fontSize: 22, fontWeight: '800' },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 14 },
+  category: { color: ui.muted, fontSize: 10, fontWeight: '600', letterSpacing: 1 },
+  active: { color: ui.accent, fontSize: 10, fontWeight: '600', marginLeft: 'auto' },
+  name: { color: ui.text, fontSize: 22, fontWeight: '600' },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 16, paddingVertical: 16, borderTopWidth: 1, borderBottomWidth: 1, borderColor: ui.border },
   stat: { width: '50%', gap: 3 },
-  statValue: { color: '#30483d', fontSize: 18, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  statLabel: { color: '#63715a', fontSize: 10 },
-  benefit: { color: '#30483d', fontSize: 12, lineHeight: 18 },
-  tradeoff: { color: '#7a624d', fontSize: 11, lineHeight: 17 },
+  statValue: { color: ui.text, fontSize: 18, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  statLabel: { color: ui.muted, fontSize: 10 },
+  benefit: { color: ui.text, fontSize: 13, lineHeight: 20 },
+  tradeoff: { color: ui.muted, fontSize: 12, lineHeight: 17 },
   buttons: { marginTop: 'auto', gap: 7 },
-  testTrail: { minHeight: 44, borderRadius: 12, backgroundColor: '#e6bd6a', alignItems: 'center', justifyContent: 'center', padding: 10 },
-  testTrailText: { color: '#3b422e', fontSize: 11, fontWeight: '800' },
-  testFlat: { minHeight: 44, borderRadius: 12, backgroundColor: '#30483d', alignItems: 'center', justifyContent: 'center', padding: 10 },
-  testFlatText: { color: '#f5f2dc', fontSize: 11, fontWeight: '700' },
-  note: { color: '#63715a', fontSize: 10, textAlign: 'center' },
+  testTrail: { minHeight: 44, borderRadius: 6, backgroundColor: ui.accent, alignItems: 'center', justifyContent: 'center', padding: 10 },
+  testTrailText: { color: ui.ink, fontSize: 12, fontWeight: '600' },
+  testFlat: { minHeight: 44, borderRadius: 6, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.raised, alignItems: 'center', justifyContent: 'center', padding: 10 },
+  testFlatText: { color: ui.text, fontSize: 12, fontWeight: '700' },
+  note: { color: ui.muted, fontSize: 10, lineHeight: 16 },
 });

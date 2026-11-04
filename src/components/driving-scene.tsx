@@ -1,7 +1,8 @@
 import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Platform, Pressable, StyleSheet, Text, View, type GestureResponderEvent, type PointerEvent } from 'react-native';
+import { AppState, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions, type GestureResponderEvent, type PointerEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GameUI as ui } from '@/constants/game-ui';
 import { Controls, emptyControls, type Gearing } from '@/game/physics';
 import { createScene } from '@/game/scene';
 import { createTouchControls } from '@/game/touch-controls';
@@ -20,6 +21,9 @@ type ControlKey = keyof Controls;
 
 export default function DrivingScene() {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const compact = width < 600;
+  const [toolsOpen, setToolsOpen] = useState(false);
   const { muted, updateSound, unlockSound: unlockEngine, toggleSound, releaseSound, silenceSound: silenceEngine } = useEngineSounds();
   const { updateHorn, silenceHorn, unlockHorn } = useHornSounds(muted);
   const unlockSound = useCallback(() => { unlockEngine(); unlockHorn(); }, [unlockEngine, unlockHorn]);
@@ -285,10 +289,10 @@ export default function DrivingScene() {
         },
         onTouchCancel: () => scene.current?.cancelCameraDrag(),
       })} />}
-    <View pointerEvents="box-none" style={[styles.overlay, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 18), paddingLeft: Math.max(insets.left, 20), paddingRight: Math.max(insets.right, 20) }]}>
+    <View pointerEvents="box-none" style={[styles.overlay, { paddingTop: Math.max(insets.top, 12), paddingBottom: Math.max(insets.bottom, 12), paddingLeft: Math.max(insets.left, 12), paddingRight: Math.max(insets.right, 12) }]}>
       <View style={styles.top} pointerEvents="box-none">
-        <View pointerEvents="box-none">
-        <View pointerEvents="none"><Text style={styles.eyebrow}>{location === 'race' ? 'SERRA / CIRCUITO' : location === 'trail' ? 'SERRA / TERRENO' : 'SERRA / GARAGEM 01'}</Text><Text style={styles.title}>{location === 'race' ? 'Circuito.' : 'Terra livre.'}</Text><View style={styles.badge}><View style={[styles.dot, { backgroundColor: vehicles[vehicleId].color }]} /><Text style={styles.badgeText}>{vehicles[vehicleId].name.toUpperCase()} · {vehicles[vehicleId].category.toUpperCase()}</Text></View></View>
+        <View style={styles.identity} pointerEvents="box-none">
+        <View pointerEvents="none"><Text style={styles.eyebrow}>SERRA RUNNER</Text><Text style={styles.title}>{location === 'race' ? 'Circuito' : location === 'trail' ? 'Todo-o-terreno' : 'Condução livre'}</Text><View style={styles.badge}><View style={[styles.dot, { backgroundColor: vehicles[vehicleId].color }]} /><Text style={styles.badgeText}>{vehicles[vehicleId].name}</Text></View></View>
           {online.room && <Text selectable style={styles.onlineRoom}>SALA {online.room.code} · {online.room.players.length}/4{online.ping !== null ? ` · ${online.ping} ms` : ''}</Text>}
           {online.phase === 'reconnecting' && <Text style={styles.onlineRoom}>A tentar restabelecer a ligação…</Text>}
           {online.phase === 'error' && <Text style={styles.onlineRoom}>Ligação terminada · abre Online para voltar a entrar.</Text>}
@@ -305,7 +309,9 @@ export default function DrivingScene() {
             ))}
           </View>
         </View>
-        <View style={styles.actions}>
+        <View style={styles.toolArea}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Mostrar ou ocultar opções de condução" accessibilityState={{ expanded: toolsOpen }} onPress={() => setToolsOpen(value => !value)} style={[styles.action, styles.menuToggle]}><Text style={styles.actionText}>{toolsOpen ? 'Fechar −' : 'Opções +'}</Text></Pressable>
+          {toolsOpen && <View style={styles.actions}>
           <Pressable accessibilityRole="button" accessibilityLabel={muted ? 'Ativar som do jogo' : 'Silenciar som do jogo'} accessibilityState={{ selected: !muted }} onPress={toggleSound} style={styles.action}><Text style={styles.actionText}>{muted ? 'Som: desligado' : 'Som: ligado'}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir multiplayer online" disabled={!ready} onPress={openOnlineMenu} style={styles.action}><Text style={styles.actionText}>{online.room ? 'Sala online' : 'Online'}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir garagem e escolher veículo" disabled={!ready} onPress={openGarage} style={styles.action}><Text style={styles.actionText}>Veículos</Text></Pressable>
@@ -313,12 +319,13 @@ export default function DrivingScene() {
           <Pressable accessibilityRole="button" accessibilityLabel="Mudar câmara" onPress={toggleCamera} style={styles.action}><Text style={styles.actionText}>{['Câmara 1', 'Câmara 2', 'Livre · arrastar'][camera]}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Ir para a pista de terreno difícil" onPress={startTrail} style={styles.action}><Text style={styles.actionText}>Testar terreno</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Repor carro" onPress={reset} style={styles.action}><Text style={styles.actionText}>↺ Repor</Text></Pressable>
+        </View>}
         </View>
       </View>
       {!ready || error.length > 0 ? (
         <View style={styles.message}>
           <Text style={styles.messageText}>
-            {error ? `Não foi possível iniciar o 3D. ${error}` : 'A preparar o jeep…'}
+            {error ? `Não foi possível iniciar o 3D. ${error}` : 'A preparar a pista…'}
           </Text>
         </View>
       ) : null}
@@ -330,10 +337,10 @@ export default function DrivingScene() {
               <View pointerEvents="none" style={styles.pedalContent}><Text style={styles.symbol}>B</Text><Text style={styles.pedalLabel}>Buzina</Text></View>
             </Pressable>
           </View>
-          <View style={styles.readout} pointerEvents="none"><Text style={styles.speed}>{Math.round(telemetry.speed).toString().padStart(2, '0')}<Text style={styles.unit}> km/h</Text></Text><Text style={styles.gear}>{telemetry.reverse ? 'R · MARCHA-ATRÁS' : 'D · TRAÇÃO 4×4'}</Text></View>
+          <View style={[styles.readout, compact && styles.readoutCompact]} pointerEvents="none"><Text style={styles.speed}>{Math.round(telemetry.speed).toString().padStart(2, '0')}<Text style={styles.unit}> km/h</Text></Text><Text style={styles.gear}>{telemetry.reverse ? 'R · MARCHA-ATRÁS' : `D · ${gearing.toUpperCase()}`}</Text></View>
           <View style={styles.cluster}>{pedal('reverse', '↓', 'Recuar')}{pedal('brake', 'Ⅱ', 'Travar')}{pedal('throttle', '↑', 'Acelerar', true)}</View>
         </View>
-        <Text style={styles.hint} pointerEvents="none">{camera === 2 ? 'Arrasta na zona livre do ecrã para rodar a câmara à volta do veículo.' : Platform.OS === 'web' ? 'WASD / setas · Espaço trava · B buzina aleatória · L / H gearing · C câmara · P circuito · T terreno · V veículos · M online · R repor' : 'Toca na Buzina: cada toque dá um tom aleatório.'}</Text>
+        <Text style={styles.hint} numberOfLines={2} pointerEvents="none">{camera === 2 ? 'Arrasta na zona livre do ecrã para rodar a câmara à volta do veículo.' : Platform.OS === 'web' ? 'WASD / setas · Espaço trava · B buzina aleatória · L / H gearing · C câmara · P circuito · T terreno · V veículos · M online · R repor' : 'Toca na Buzina: cada toque dá um tom aleatório.'}</Text>
       </View>
     </View>
     <VehicleGarage visible={garageOpen} current={vehicleId} onClose={closeGarage} onTest={testVehicle} />
@@ -344,41 +351,45 @@ export default function DrivingScene() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#c8d7ce' },
+  container: { flex: 1, backgroundColor: ui.background },
   lookSurface: { touchAction: 'none' },
   overlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'space-between' },
-  top: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' },
-  eyebrow: { color: '#3b5149', fontSize: 10, fontWeight: '700', letterSpacing: 3 },
-  title: { color: '#223b32', fontSize: 34, fontWeight: '800', letterSpacing: -1.5, marginTop: 4 },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 9 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#547658' },
-  badgeText: { color: '#40574c', fontSize: 8, fontWeight: '700', letterSpacing: 1.1 },
-  onlineRoom: { color: '#40574c', fontSize: 9, fontWeight: '700', marginTop: 7 },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', flexShrink: 1, maxWidth: '50%', justifyContent: 'flex-end', gap: 8 },
-  action: { backgroundColor: '#f5f3e5dc', borderRadius: 22, paddingVertical: 12, paddingHorizontal: 15, borderWidth: 1, borderColor: '#ffffff80' },
-  actionText: { color: '#30483d', fontSize: 11, fontWeight: '700' },
-  raceAction: { backgroundColor: '#e6bd6a', borderColor: '#fff2c0' },
-  bottom: { gap: 12 },
-  gearingSelector: { alignSelf: 'flex-start', marginTop: 12, flexDirection: 'row', gap: 4, padding: 4, borderRadius: 18, backgroundColor: '#273f37e8' },
-  gearingOption: { minWidth: 104, minHeight: 48, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  gearingSelected: { backgroundColor: '#e6bd6a' },
-  gearingLabel: { color: '#f5f2dc', fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
-  gearingDetail: { color: '#e7ecdc', fontSize: 9 },
-  readout: { position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center' },
-  speed: { fontSize: 38, fontWeight: '800', color: '#263f33', fontVariant: ['tabular-nums'], letterSpacing: -1 },
-  unit: { fontSize: 12, fontWeight: '500', letterSpacing: 0 },
-  gear: { color: '#405747', fontSize: 8, fontWeight: '700', letterSpacing: 2, marginTop: 3 },
-  controls: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 10 },
-  cluster: { flexDirection: 'row', gap: 6 },
-  pedal: { width: 50, height: 72, borderRadius: 17, backgroundColor: '#273f37e8', borderWidth: 1, borderColor: '#ffffff25', justifyContent: 'center', alignItems: 'center', gap: 3 },
-  accelerator: { backgroundColor: '#e6bd6a', height: 88, borderColor: '#fff2c0' },
-  hornPedal: { borderColor: '#e6bd6a', borderWidth: 1.5 },
+  top: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' },
+  identity: { backgroundColor: ui.overlay, padding: 14, borderRadius: 8, borderLeftWidth: 3, borderLeftColor: ui.accent, flexShrink: 1 },
+  eyebrow: { color: ui.muted, fontSize: 9, fontWeight: '600', letterSpacing: 2.5 },
+  title: { color: ui.text, fontSize: 22, fontWeight: '600', letterSpacing: -0.5, marginTop: 5 },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 },
+  dot: { width: 7, height: 7, borderRadius: 2 },
+  badgeText: { color: ui.muted, fontSize: 11, flexShrink: 1 },
+  onlineRoom: { color: ui.accent, fontSize: 10, fontWeight: '600', marginTop: 8 },
+  toolArea: { alignItems: 'flex-end', maxWidth: '46%', gap: 6 },
+  menuToggle: { borderColor: ui.border },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 5, padding: 6, backgroundColor: ui.overlay, borderRadius: 8 },
+  action: { minHeight: 44, justifyContent: 'center', backgroundColor: ui.overlay, borderRadius: 6, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: ui.border },
+  actionText: { color: ui.text, fontSize: 11, fontWeight: '500' },
+  raceAction: { borderColor: ui.accent },
+  bottom: { gap: 10 },
+  gearingSelector: { alignSelf: 'flex-start', marginTop: 12, flexDirection: 'row', gap: 3, padding: 3, borderRadius: 5, backgroundColor: ui.background },
+  gearingOption: { minWidth: 72, minHeight: 44, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 3, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  gearingSelected: { backgroundColor: ui.accent },
+  gearingLabel: { color: ui.text, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  gearingDetail: { color: ui.muted, fontSize: 9 },
+  readout: { position: 'absolute', bottom: 0, alignSelf: 'center', left: '50%', width: 150, marginLeft: -75, alignItems: 'center', paddingVertical: 10, backgroundColor: ui.overlay, borderRadius: 8, borderTopWidth: 2, borderTopColor: ui.accent },
+  readoutCompact: { bottom: 100, width: 124, marginLeft: -62, paddingVertical: 6 },
+  speed: { fontSize: 38, fontWeight: '500', color: ui.text, fontVariant: ['tabular-nums'], letterSpacing: -1.5 },
+  unit: { fontSize: 11, fontWeight: '400', letterSpacing: 0, color: ui.muted },
+  gear: { color: ui.muted, fontSize: 9, fontWeight: '600', letterSpacing: 1.5, marginTop: 2 },
+  controls: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 8 },
+  cluster: { flexDirection: 'row', gap: 5, alignItems: 'flex-end' },
+  pedal: { width: 44, height: 68, borderRadius: 7, backgroundColor: ui.overlay, borderWidth: 1, borderColor: ui.border, justifyContent: 'center', alignItems: 'center' },
+  accelerator: { backgroundColor: ui.accent, height: 86, borderColor: ui.accent },
+  hornPedal: { height: 48 },
   pressed: { opacity: 0.7, transform: [{ scale: 0.95 }] },
   pedalContent: { alignItems: 'center', gap: 3 },
-  symbol: { color: '#f5f2dc', fontSize: 30, lineHeight: 33, fontWeight: '400' },
-  pedalLabel: { color: '#e7ecdc', fontSize: 8, fontWeight: '600' },
-  darkText: { color: '#3b422e' },
-  hint: { textAlign: 'center', fontSize: 9, color: '#445b4d' },
-  message: { alignSelf: 'center', backgroundColor: '#f5f3e5ee', borderRadius: 18, padding: 20, maxWidth: 350 },
-  messageText: { color: '#30483d', textAlign: 'center' },
+  symbol: { color: ui.text, fontSize: 27, lineHeight: 30, fontWeight: '400' },
+  pedalLabel: { color: ui.muted, fontSize: 8, fontWeight: '500' },
+  darkText: { color: ui.ink },
+  hint: { alignSelf: 'center', textAlign: 'center', fontSize: 9, lineHeight: 14, color: ui.text, backgroundColor: ui.overlay, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 4, maxWidth: '100%' },
+  message: { alignSelf: 'center', backgroundColor: ui.surface, borderRadius: 8, padding: 20, maxWidth: 350, borderWidth: 1, borderColor: ui.border },
+  messageText: { color: ui.text, textAlign: 'center', lineHeight: 20 },
 });

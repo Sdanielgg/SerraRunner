@@ -3,7 +3,7 @@ import type { VehicleId } from './vehicles';
 import type { HornTone } from './horn-audio';
 
 // Clients and servers must agree on the vehicle roster and circuit collisions.
-export const NETWORK_VERSION = 4;
+export const NETWORK_VERSION = 5;
 export const MAX_PLAYERS = 4;
 export const ROOM_NAME = 'serra_drive';
 export type TestLocation = 'garage' | 'trail' | 'race';

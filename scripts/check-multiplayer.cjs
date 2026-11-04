@@ -5,6 +5,7 @@ const { createGameServer } = require('../build-server/server/index.js');
 const { createMultiplayerClient } = require('../build-server/src/game/multiplayer-client.js');
 const { createPhysics, createPhysicsWorld, emptyControls } = require('../build-server/src/game/physics.js');
 const { NETWORK_VERSION, ROOM_NAME, serverAddress } = require('../build-server/src/game/network-types.js');
+const { createHornPulse } = require('../build-server/src/game/horn-audio.js');
 
 async function waitFor(test, message, timeout = 6000) {
   const start = Date.now();
@@ -74,6 +75,14 @@ async function run() {
     await waitFor(() => own().horn && hornPeer?.players.find(player => player.id === first.sessionId)?.horn, 'horn reaches another client');
     assert.equal(hornPeer.players.find(player => player.id === first.sessionId).hornTone, 'low', 'Selected horn tone is synchronized');
     await waitFor(() => !own().horn, 'stale horn input is released automatically', 2000);
+    const hornPulse = createHornPulse((active, tone) => first.send('input', { seq: ++seq, controls: emptyControls(), gearing: 'high', horn: active, hornTone: tone }), () => 0);
+    try {
+      hornPulse.trigger();
+      await waitFor(() => hornPeer.players.find(player => player.id === first.sessionId)?.hornTone === 'low' && hornPeer.players.find(player => player.id === first.sessionId)?.horn, 'first random horn tap reaches peers');
+      hornPulse.trigger();
+      await waitFor(() => hornPeer.players.find(player => player.id === first.sessionId)?.hornTone === 'mid' && hornPeer.players.find(player => player.id === first.sessionId)?.horn, 'rapid second tap changes the pitch for peers');
+      await waitFor(() => !own().horn, 'short horn pulse ends automatically');
+    } finally { hornPulse.dispose(); }
     const start = { ...own().body.position };
     inputTimer = setInterval(() => first.send('input', { seq: ++seq, controls: { ...emptyControls(), throttle: true }, gearing: 'high', position: { x: 99999, y: 99999, z: 99999 } }), 40);
     await waitFor(() => own().speed > 18, 'server applies commands');

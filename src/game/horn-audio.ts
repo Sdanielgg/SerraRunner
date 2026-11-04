@@ -4,9 +4,9 @@ import type { VehicleId } from './vehicles';
 
 export const HORN_TONES = ['auto', 'low', 'mid', 'high'] as const;
 export type HornTone = typeof HORN_TONES[number];
-export const HORN_LABELS: Record<HornTone, string> = { auto: 'Auto', low: 'Grave', mid: 'Médio', high: 'Agudo' };
 export const HORN_TICK_MS = 20;
 export const HORN_DISTANCE = 80;
+export const HORN_PULSE_MS = 180;
 export type HornVoice = { id: string; vehicleId: VehicleId; tone: HornTone; honking: boolean; distance: number; own: boolean };
 export type HornFrame = { active: boolean; voices: HornVoice[] };
 
@@ -17,6 +17,34 @@ export function hornRate(vehicleId: VehicleId, tone: HornTone) {
   const automatic = { crawler: 260, jeep: 340, rally: 440, gt3: 520 };
   const frequency = tone === 'auto' ? automatic[vehicleId] : { low: 260, mid: 380, high: 520 }[tone];
   return frequency / 360;
+}
+export function randomHornTone(previous: HornTone, random = Math.random): HornTone {
+  const choices = (['low', 'mid', 'high'] as const).filter(tone => tone !== previous);
+  return choices[Math.floor(random() * choices.length)];
+}
+
+// A tap schedules its own release, independently of render frames. A newer tap
+// replaces the release timer and always changes pitch, even during a quick run.
+export function createHornPulse(onChange: (active: boolean, tone: HornTone) => void, random = Math.random,
+  schedule: (callback: () => void) => () => void = callback => {
+    const timer = setTimeout(callback, HORN_PULSE_MS); return () => clearTimeout(timer);
+  }) {
+  let active = false; let tone: HornTone = 'auto'; let revision = 0;
+  let cancel: (() => void) | null = null;
+  function clear() { revision++; cancel?.(); cancel = null; active = false; }
+  return {
+    get active() { return active; }, get tone() { return tone; },
+    trigger() {
+      clear(); const token = revision;
+      tone = randomHornTone(tone, random); active = true; onChange(true, tone);
+      cancel = schedule(() => {
+        if (revision !== token) return;
+        active = false; cancel = null; onChange(false, tone);
+      });
+    },
+    release() { clear(); onChange(false, tone); },
+    dispose: clear,
+  };
 }
 export function nearbyHorns(snapshot: RoomSnapshot, sessionId: string): HornVoice[] {
   const own = snapshot.players.find(player => player.id === sessionId);

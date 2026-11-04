@@ -13,7 +13,7 @@ import type { RoomSnapshot, TestLocation } from '@/game/network-types';
 import { nearbyEngines } from '@/game/engine-audio';
 import { useEngineSounds } from '@/hooks/use-engine-sounds';
 import { useHornSounds } from '@/hooks/use-horn-sounds';
-import { HORN_LABELS, HORN_TONES, nearbyHorns, type HornTone } from '@/game/horn-audio';
+import { createHornPulse, nearbyHorns } from '@/game/horn-audio';
 
 type Scene = ReturnType<typeof createScene>;
 type ControlKey = keyof Controls;
@@ -24,9 +24,6 @@ export default function DrivingScene() {
   const { updateHorn, silenceHorn, unlockHorn } = useHornSounds(muted);
   const unlockSound = useCallback(() => { unlockEngine(); unlockHorn(); }, [unlockEngine, unlockHorn]);
   const silenceSound = useCallback(() => { silenceEngine(); silenceHorn(); }, [silenceEngine, silenceHorn]);
-  const hornInputs = useRef(new Set<string | number>());
-  const hornToneRef = useRef<HornTone>('auto');
-  const [hornTone, setHornTone] = useState<HornTone>('auto');
   const [hornPressed, setHornPressed] = useState(false);
   const focused = useRef(true);
   const touch = useRef(emptyControls());
@@ -55,17 +52,13 @@ export default function DrivingScene() {
   const [garageOpen, setGarageOpen] = useState(false);
   const gearingRef = useRef<Gearing>('high');
   const [gearing, setGearing] = useState<Gearing>('high');
-  const hornInput = useCallback((identifier: string | number, down: boolean) => {
-    if (down) { unlockSound(); hornInputs.current.add(identifier); }
-    else hornInputs.current.delete(identifier);
-    const active = hornInputs.current.size > 0;
-    setHornPressed(active); network.current?.setHorn(active, hornToneRef.current);
-  }, [unlockSound]);
-  const cycleHornTone = useCallback(() => {
-    const tone = HORN_TONES[(HORN_TONES.indexOf(hornToneRef.current) + 1) % HORN_TONES.length];
-    hornToneRef.current = tone; setHornTone(tone);
-    network.current?.setHorn(hornInputs.current.size > 0, tone);
+  const hornPulse = useRef<ReturnType<typeof createHornPulse> | null>(null);
+  useEffect(() => {
+    const pulse = createHornPulse((active, tone) => { setHornPressed(active); network.current?.setHorn(active, tone); });
+    hornPulse.current = pulse;
+    return () => { pulse.dispose(); hornPulse.current = null; };
   }, []);
+  const honk = useCallback(() => { unlockSound(); hornPulse.current?.trigger(); }, [unlockSound]);
   const selectGearing = useCallback((value: Gearing) => {
     gearingRef.current = value;
     setGearing(value);
@@ -75,7 +68,7 @@ export default function DrivingScene() {
     scene.current?.cancelCameraDrag();
     network.current?.release();
     releaseSound();
-    hornInputs.current.clear(); setHornPressed(false); silenceHorn();
+    hornPulse.current?.release(); silenceHorn();
     setPressedControls(touch.current);
   }, [releaseSound, silenceHorn]);
   const reset = useCallback(() => {
@@ -171,8 +164,7 @@ export default function DrivingScene() {
       const key = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
       if (key) unlockSound();
       if (key) { event.preventDefault(); keyboard.current[key] = true; }
-      if (event.key.toLowerCase() === 'b') { event.preventDefault(); hornInput('keyboard', true); }
-      if (event.key.toLowerCase() === 'n' && !event.repeat) { event.preventDefault(); cycleHornTone(); }
+      if (event.key.toLowerCase() === 'b' && !event.repeat) { event.preventDefault(); honk(); }
       if (event.key.toLowerCase() === 'r' && !event.repeat) reset();
       if (event.key.toLowerCase() === 'l') selectGearing('low');
       if (event.key.toLowerCase() === 'h') selectGearing('high');
@@ -186,7 +178,6 @@ export default function DrivingScene() {
       if (onlineMenuVisible.current || garageVisible.current) return;
       const key = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
       if (key) { event.preventDefault(); keyboard.current[key] = false; }
-      if (event.key.toLowerCase() === 'b') { event.preventDefault(); hornInput('keyboard', false); }
     };
     const blur = () => { focused.current = false; clearInput(); silenceSound(); };
     const focus = () => { focused.current = true; };
@@ -194,7 +185,7 @@ export default function DrivingScene() {
     return () => {
       subscription.remove(); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('blur', blur); window.removeEventListener('focus', focus);
     };
-  }, [clearInput, reset, selectGearing, startTrail, startRace, toggleCamera, openGarage, closeGarage, openOnlineMenu, closeOnlineMenu, unlockSound, silenceSound, hornInput, cycleHornTone]);
+  }, [clearInput, reset, selectGearing, startTrail, startRace, toggleCamera, openGarage, closeGarage, openOnlineMenu, closeOnlineMenu, unlockSound, silenceSound, honk]);
   useEffect(() => () => { cancelAnimationFrame(animation.current); scene.current?.dispose(); scene.current = null; }, []);
 
   const onContextCreate = useCallback((gl: ExpoWebGLRenderingContext) => {
@@ -214,12 +205,13 @@ export default function DrivingScene() {
               (Object.keys(controls) as ControlKey[]).forEach(key => { controls[key] = touch.current[key] || keyboard.current[key]; });
             }
             network.current?.setInput(controls, gearingRef.current);
-            network.current?.setHorn(hornInputs.current.size > 0, hornToneRef.current);
+            const pulse = hornPulse.current;
+            network.current?.setHorn(pulse?.active ?? false, pulse?.tone ?? 'auto');
             const info = world.frame(dt, controls, gearingRef.current);
             const hornRemotes = onlineState.current.phase === 'online' && lastNetworkState.current
               ? nearbyHorns(lastNetworkState.current.snapshot, lastNetworkState.current.sessionId) : [];
             updateHorn({ active: focused.current && !garageVisible.current && !onlineMenuVisible.current && onlineState.current.phase !== 'reconnecting',
-              voices: [{ id: 'self', vehicleId: selectedVehicle.current, tone: hornToneRef.current, honking: hornInputs.current.size > 0, distance: 0, own: true }, ...hornRemotes] });
+              voices: [{ id: 'self', vehicleId: selectedVehicle.current, tone: pulse?.tone ?? 'auto', honking: pulse?.active ?? false, distance: 0, own: true }, ...hornRemotes] });
             if (time - lastUpdate > 120) {
               setTelemetry(info); lastUpdate = time;
               const remote = onlineState.current.phase === 'online' && lastNetworkState.current
@@ -318,7 +310,6 @@ export default function DrivingScene() {
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir multiplayer online" disabled={!ready} onPress={openOnlineMenu} style={styles.action}><Text style={styles.actionText}>{online.room ? 'Sala online' : 'Online'}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir garagem e escolher veículo" disabled={!ready} onPress={openGarage} style={styles.action}><Text style={styles.actionText}>Veículos</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Entrar no circuito de corridas em High" disabled={!ready} onPress={startRace} style={[styles.action, styles.raceAction]}><Text style={styles.actionText}>Circuito</Text></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Tom da buzina: ${HORN_LABELS[hornTone]}. Mudar tom`} onPress={cycleHornTone} style={styles.action}><Text style={styles.actionText}>Tom: {HORN_LABELS[hornTone]}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Mudar câmara" onPress={toggleCamera} style={styles.action}><Text style={styles.actionText}>{['Câmara 1', 'Câmara 2', 'Livre · arrastar'][camera]}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Ir para a pista de terreno difícil" onPress={startTrail} style={styles.action}><Text style={styles.actionText}>Testar terreno</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Repor carro" onPress={reset} style={styles.action}><Text style={styles.actionText}>↺ Repor</Text></Pressable>
@@ -334,24 +325,15 @@ export default function DrivingScene() {
       <View style={styles.bottom} pointerEvents="box-none">
         <View style={styles.controls} pointerEvents="box-none">
           <View style={styles.cluster}>{pedal('left', '‹', 'Esquerda')}{pedal('right', '›', 'Direita')}
-            <View accessibilityRole="button" accessibilityLabel="Manter premido para buzinar"
-              {...(Platform.OS === 'web' ? {
-                onPointerDown: (event: PointerEvent) => hornInput(event.nativeEvent.pointerId, true),
-                onPointerUp: (event: PointerEvent) => hornInput(event.nativeEvent.pointerId, false),
-                onPointerCancel: (event: PointerEvent) => hornInput(event.nativeEvent.pointerId, false),
-                onPointerLeave: (event: PointerEvent) => hornInput(event.nativeEvent.pointerId, false),
-              } : {
-                onTouchStart: (event: GestureResponderEvent) => event.nativeEvent.changedTouches.forEach(point => hornInput(point.identifier, true)),
-                onTouchEnd: (event: GestureResponderEvent) => event.nativeEvent.changedTouches.forEach(point => hornInput(point.identifier, false)),
-                onTouchCancel: (event: GestureResponderEvent) => event.nativeEvent.changedTouches.forEach(point => hornInput(point.identifier, false)),
-              })} style={[styles.pedal, styles.hornPedal, hornPressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Buzinar com um tom aleatório" onPress={honk}
+              style={[styles.pedal, styles.hornPedal, hornPressed && styles.pressed]}>
               <View pointerEvents="none" style={styles.pedalContent}><Text style={styles.symbol}>B</Text><Text style={styles.pedalLabel}>Buzina</Text></View>
-            </View>
+            </Pressable>
           </View>
           <View style={styles.readout} pointerEvents="none"><Text style={styles.speed}>{Math.round(telemetry.speed).toString().padStart(2, '0')}<Text style={styles.unit}> km/h</Text></Text><Text style={styles.gear}>{telemetry.reverse ? 'R · MARCHA-ATRÁS' : 'D · TRAÇÃO 4×4'}</Text></View>
           <View style={styles.cluster}>{pedal('reverse', '↓', 'Recuar')}{pedal('brake', 'Ⅱ', 'Travar')}{pedal('throttle', '↑', 'Acelerar', true)}</View>
         </View>
-        <Text style={styles.hint} pointerEvents="none">{camera === 2 ? 'Arrasta na zona livre do ecrã para rodar a câmara à volta do veículo.' : Platform.OS === 'web' ? 'WASD / setas · Espaço trava · B buzina · N tom · L / H gearing · C câmara · P circuito · T terreno · V veículos · M online · R repor' : 'Mantém Buzina premido. Escolhe o tom no botão Tom.'}</Text>
+        <Text style={styles.hint} pointerEvents="none">{camera === 2 ? 'Arrasta na zona livre do ecrã para rodar a câmara à volta do veículo.' : Platform.OS === 'web' ? 'WASD / setas · Espaço trava · B buzina aleatória · L / H gearing · C câmara · P circuito · T terreno · V veículos · M online · R repor' : 'Toca na Buzina: cada toque dá um tom aleatório.'}</Text>
       </View>
     </View>
     <VehicleGarage visible={garageOpen} current={vehicleId} onClose={closeGarage} onTest={testVehicle} />

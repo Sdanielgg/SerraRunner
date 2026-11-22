@@ -2,7 +2,7 @@ import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/auth/auth-provider';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type GestureResponderEvent, type PointerEvent } from 'react-native';
+import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type GestureResponderEvent, type PointerEvent, type ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GameUI as ui } from '@/constants/game-ui';
 import { Controls, controlKeys, emptyControls, type Gearing } from '@/game/physics';
@@ -516,7 +516,8 @@ export default function DrivingScene({ initialCar = 'jeep', course = 'garage', c
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: ui.background },
-  lookSurface: { touchAction: 'none' },
+  // React Native Web supports touchAction, which is absent from native ViewStyle.
+  lookSurface: { touchAction: 'none' } as ViewStyle & { touchAction: 'none' },
   overlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'space-between' },
   top: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' },
   identity: { backgroundColor: ui.overlay, padding: 12, borderRadius: 12, borderLeftWidth: 3, borderLeftColor: ui.accent, flexShrink: 1, maxWidth: '48%' },

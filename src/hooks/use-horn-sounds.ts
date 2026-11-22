@@ -2,8 +2,8 @@ import { useAudioPlayer } from 'expo-audio';
 import { Asset } from 'expo-asset';
 import { useCallback, useEffect, useMemo } from 'react';
 import { createHornMixer, HORN_TICK_MS, type HornFrame } from '@/game/horn-audio';
+import { sounds } from '../../assets/audio/sounds';
 
-const source = require('../../assets/audio/horn.wav');
 const options = { updateInterval: 250, preferredForwardBufferDuration: 2, allowsExternalPlayback: false };
 export function useHornSounds(muted: boolean) {
   const own = useAudioPlayer(null, options); const a = useAudioPlayer(null, options);
@@ -12,7 +12,7 @@ export function useHornSounds(muted: boolean) {
   useEffect(() => { mixer.setMuted(muted); }, [mixer, muted]);
   useEffect(() => {
     let mounted = true;
-    void Asset.loadAsync(source).then(([asset]) => {
+    void Asset.loadAsync(sounds.horn).then(([asset]) => {
       if (mounted) mixer.setSource({ uri: asset.localUri ?? asset.uri });
     }).catch(error => console.warn('Não foi possível preparar a buzina.', error));
     const timer = setInterval(() => mixer.tick(), HORN_TICK_MS);

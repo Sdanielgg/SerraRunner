@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   contentPortrait: { flexDirection: 'column', gap: 8 },
   vehicleArea: { flex: 1.15, minWidth: 0 },
   vehicleAreaPortrait: { flex: 0.9, minHeight: 210 },
-  stage: { flex: 1, overflow: 'hidden', touchAction: 'none' },
+  stage: { flex: 1, overflow: 'hidden', ...{ touchAction: 'none' } },
   vehicleImage: { width: '100%', height: '100%', resizeMode: 'contain' },
   upgrades: { flex: 0.85, maxWidth: 420, backgroundColor: '#edf0f3', borderRadius: 10, padding: 12 },
   upgradesPortrait: { flex: 1.1, maxWidth: '100%', width: '100%' },

@@ -67,13 +67,15 @@ Para verificar a exportação antes de publicar, usa `npm run web:build`: gera `
 
 ## Sons dos veículos
 
+Para substituir qualquer motor ou a buzina, coloca os teus ficheiros em `assets/audio/` e altera os caminhos em [`assets/audio/sounds.ts`](assets/audio/sounds.ts). O guia em [`assets/audio/README.md`](assets/audio/README.md) explica os formatos, os loops e como evitar sobrescrever os teus sons.
+
 Cada veículo tem um motor sintetizado diferente: o Crawler tem um som mais grave e o Rally mais agudo. A rotação e o volume acompanham a velocidade, aceleração, travagem e modo Low/High. No multiplayer, os motores dos outros jogadores ficam mais baixos à medida que se afastam e deixam de tocar a partir de 60 metros. Ao perder o foco, abrir menus ou silenciar o som, o volume desce com um fade antes de pausar; ao regressar, sobe gradualmente. O fade do misturador dura cerca de 250 ms e pode inverter o sentido sem reiniciar o motor. Os comandos são libertados ao perder o foco.
 
 Os loops WAV são locais e originais, gerados por `scripts/generate-engine-audio.cjs`; não dependem de serviços de som externos. Cada loop tem 16 segundos e é guardado na cache do dispositivo antes de tocar, incluindo ao trocar de veículo. A reprodução mantém-se contínua nas transições do loop e evita reconfigurar a rotação com alterações mínimas. No multiplayer, cada leitor de áudio acompanha o mesmo carro, mesmo quando a ordem dos carros por distância muda. Para regenerar os sons: `npm run audio:generate`. A reprodução usa `expo-audio`, incluído no Expo Go compatível com o SDK 58, sem pedir acesso ao microfone. Depois de atualizar as dependências, reinicia o Expo com `npm start -- --clear`.
 
 No navegador, o som usa Web Audio com os ficheiros descodificados em memória. A rotação e o volume mudam por rampas no relógio do áudio, e o mesmo loop mantém a sua fase ao silenciar e retomar. Em iOS/Android, a reprodução usa `expo-audio` e os ficheiros em cache.
 
-A buzina usa um loop original de dois tons, em leitores separados dos motores. Cada clique ativa um som de cerca de 180 ms, seguido de um fade curto; um novo clique troca imediatamente o pitch aleatório e renova o toque sem recarregar o som. No multiplayer, os outros jogadores ouvem o mesmo tom até 80 m, com volume reduzido pela distância. Ao perder o foco, abrir menus, desligar o som ou perder a ligação, a buzina deixa de tocar; o servidor também liberta comandos sem atualizações. `npm run audio:generate` gera motores e buzina.
+A buzina usa um loop original de dois tons, em leitores separados dos motores. O som mantém-se enquanto o botão estiver premido e o tom muda conforme a duração do toque. No multiplayer, os outros jogadores ouvem o mesmo tom até 80 m, com volume reduzido pela distância. Ao perder o foco, abrir menus, desligar o som ou perder a ligação, a buzina deixa de tocar; o servidor também liberta comandos sem atualizações. `npm run audio:generate` regenera e sobrescreve os ficheiros originais dos motores e da buzina.
 
 ## Veículos
 

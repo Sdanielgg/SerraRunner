@@ -89,7 +89,7 @@ export default function DrivingControls(props: Props) {
 const styles = StyleSheet.create({
   root: { gap: 12 }, drivingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 },
   thumbZone: { gap: 10 }, row: { flexDirection: 'row', gap: 12 }, pedalRow: { alignItems: 'flex-end' },
-  button: { borderRadius: 16, borderWidth: 2, borderColor: '#647078', backgroundColor: '#192024ee', justifyContent: 'center', alignItems: 'center', touchAction: 'none', userSelect: 'none' },
+  button: { borderRadius: 16, borderWidth: 2, borderColor: '#647078', backgroundColor: '#192024ee', justifyContent: 'center', alignItems: 'center', ...{ touchAction: 'none', userSelect: 'none' } },
   buttonContent: { alignItems: 'center', gap: 2 }, accelerator: { backgroundColor: ui.accent, borderColor: '#ffe1a8' },
   brake: { borderColor: '#df9c8e', backgroundColor: '#3a2927ee' }, active: { borderColor: '#ffffff', borderWidth: 3 }, disabled: { opacity: 0.4 },
   symbol: { color: ui.text, fontSize: 28, lineHeight: 30, fontWeight: '700' }, utilitySymbol: { fontSize: 20, lineHeight: 22 }, label: { color: ui.text, fontSize: 11, lineHeight: 13, fontWeight: '600', textAlign: 'center' },

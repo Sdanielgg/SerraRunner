@@ -2,8 +2,8 @@ import { Asset } from 'expo-asset';
 import { useCallback, useEffect, useRef } from 'react';
 import { createHornMixer, HORN_TICK_MS, type HornFrame } from '@/game/horn-audio';
 import { createWebEnginePlayer } from '@/game/web-engine-player';
+import { sounds } from '../../assets/audio/sounds';
 
-const moduleSource = require('../../assets/audio/horn.wav');
 export function useHornSounds(muted: boolean) {
   const runtime = useRef<{ context: AudioContext; mixer: ReturnType<typeof createHornMixer> } | null>(null);
   const latest = useRef<HornFrame>({ active: false, voices: [] });
@@ -16,7 +16,7 @@ export function useHornSounds(muted: boolean) {
     const players = Array.from({ length: 4 }, () => createWebEnginePlayer(context, buffers, { gainRamp: 0.012, pitchRamp: 0.025 }));
     const mixer = createHornMixer(players); mixer.setMuted(mutedRef.current); mixer.update(latest.current);
     runtime.current = { context, mixer };
-    const source = { uri: Asset.fromModule(moduleSource).uri }; const abort = new AbortController();
+    const source = { uri: Asset.fromModule(sounds.horn).uri }; const abort = new AbortController();
     let mounted = true;
     void fetch(source.uri, { signal: abort.signal }).then(async response => {
       if (!response.ok) throw new Error(`Buzina indisponível (${response.status}).`);

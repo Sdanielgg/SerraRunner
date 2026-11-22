@@ -2,13 +2,9 @@ import { Asset } from 'expo-asset';
 import { useCallback, useEffect, useRef } from 'react';
 import { createEngineMixer, ENGINE_TICK_MS, type EngineAudioFrame } from '@/game/engine-audio';
 import { createWebEnginePlayer } from '@/game/web-engine-player';
+import { sounds } from '../../assets/audio/sounds';
 
-const modules = {
-  jeep: require('../../assets/audio/engine-jeep.wav'),
-  crawler: require('../../assets/audio/engine-crawler.wav'),
-  rally: require('../../assets/audio/engine-rally.wav'),
-  gt3: require('../../assets/audio/engine-gt3.wav'),
-};
+const modules = sounds.engines;
 type Runtime = { context: AudioContext; mixer: ReturnType<typeof createEngineMixer> };
 
 export function useEngineSounds(muted: boolean) {

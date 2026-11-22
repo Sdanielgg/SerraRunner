@@ -19,7 +19,8 @@ function garageData(value: unknown): GarageData {
   if (!data || !Number.isSafeInteger(Number(data.balance)) || Number(data.balance) < 0) throw new Error('Saldo da garagem inválido.');
   return { balance: Number(data.balance), levels: validateUpgrades(data.levels) };
 }
-const options = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }, global: { fetch: (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(authRules.requestTimeoutMs) }) } };
+const fetchWithTimeout: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(authRules.requestTimeoutMs) });
+const options = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }, global: { fetch: fetchWithTimeout } };
 
 export function createSupabaseServices(env: NodeJS.ProcessEnv = process.env): GameServices {
   const url = env.SUPABASE_URL?.trim(); const key = env.SUPABASE_PUBLISHABLE_KEY?.trim();

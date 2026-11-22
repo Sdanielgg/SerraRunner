@@ -1,7 +1,7 @@
 import { authRules } from './config';
 
 // AbortSignal.timeout is not available in every Expo Go runtime.
-export async function fetchWithTimeout(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
+export const fetchWithTimeout: typeof fetch = async (input, init) => {
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (init?.signal?.aborted) controller.abort();
@@ -9,4 +9,4 @@ export async function fetchWithTimeout(input: Parameters<typeof fetch>[0], init?
   const timer = setTimeout(abort, authRules.requestTimeoutMs);
   try { return await fetch(input, { ...init, signal: controller.signal }); }
   finally { clearTimeout(timer); init?.signal?.removeEventListener('abort', abort); }
-}
+};

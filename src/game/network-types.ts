@@ -1,9 +1,12 @@
-import type { Controls, Gearing } from './physics';
+import type { Controls, Gearing, VehiclePhysicsState } from './physics';
+import type { TournamentSnapshot } from './tournament';
+import type { EconomySnapshot } from './economy-config';
+import type { GarageSnapshot } from './upgrades';
 import type { VehicleId } from './vehicles';
 import type { HornTone } from './horn-audio';
 
 // Clients and servers must agree on the vehicle roster and circuit collisions.
-export const NETWORK_VERSION = 5;
+export const NETWORK_VERSION = 10;
 export const MAX_PLAYERS = 4;
 export const ROOM_NAME = 'serra_drive';
 export type TestLocation = 'garage' | 'trail' | 'race';
@@ -11,13 +14,18 @@ export type Vector = { x: number; y: number; z: number };
 export type Rotation = Vector & { w: number };
 export type Pose = { position: Vector; quaternion: Rotation };
 export type PlayerSnapshot = {
+  location?: TestLocation;
   id: string; name: string; vehicleId: VehicleId; gearing: Gearing; revision: number;
+  userId?: string; color?: string;
+  physics?: VehiclePhysicsState; acknowledgedSeq?: number; controlsEnabled?: boolean;
+  connected?: boolean; resumeUntil?: number;
   body: Pose; wheels: Pose[]; speed: number; reverse: boolean;
   horn: boolean; hornTone: HornTone;
 };
-export type RoomSnapshot = { version: number; tick: number; players: PlayerSnapshot[] };
+export type RoomSnapshot = { version: number; tick: number; players: PlayerSnapshot[]; tournament?: TournamentSnapshot; economy?: EconomySnapshot; garage?: GarageSnapshot; connection?: { epoch: number; resumed: boolean; windowSeconds: number } };
+export type InputCommand = { seq: number; controls: Controls; gearing: Gearing };
 export type InputMessage = { seq: number; controls: Controls; gearing: Gearing; horn: boolean; hornTone: HornTone };
-export type RoomInfo = { code: string; sessionId: string; players: { id: string; name: string; vehicleId: VehicleId }[] };
+export type RoomInfo = { code: string; sessionId: string; players: { id: string; name: string; vehicleId: VehicleId; userId?: string; color?: string }[] };
 
 export function isVehicleId(value: unknown): value is VehicleId {
   return value === 'jeep' || value === 'crawler' || value === 'rally' || value === 'gt3';

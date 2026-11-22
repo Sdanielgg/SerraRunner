@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "SerraRunner",
+    "name": "Ramp Rivals",
     "slug": "SerraRunner",
     "version": "1.0.0",
     "orientation": "landscape",
@@ -20,6 +20,8 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
+      "name": "Ramp Rivals",
+      "shortName": "Ramp Rivals",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },

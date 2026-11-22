@@ -4,48 +4,68 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { OnlineStatus } from '@/game/multiplayer-client';
 import { vehicles } from '@/game/vehicles';
+import { useAuth } from '@/auth/auth-provider';
+import { router } from 'expo-router';
+import TournamentLobby from './tournament-lobby';
+import type { TournamentAction } from '@/game/tournament';
+import type { VehicleId } from '@/game/vehicles';
+import type { PurchaseAction } from './competition-garage';
 
 type Props = {
   visible: boolean; status: OnlineStatus;
   onClose: () => void; onLeave: () => void;
-  onConnect: (options: { address: string; name: string; code?: string }) => void;
+  onConnect: (options: { address: string; code?: string }) => void;
+  onCompetition: (action: 'start' | 'retry') => void;
+  onTournament: (action: TournamentAction) => void;
+  onVehicle: (id: VehicleId) => void;
+  onPurchase: (action: PurchaseAction) => void;
 };
 
-export default function OnlineMenu({ visible, status, onClose, onLeave, onConnect }: Props) {
+export default function OnlineMenu({ visible, status, onClose, onLeave, onConnect, onCompetition, onTournament, onVehicle, onPurchase }: Props) {
+  const auth = useAuth();
   const [address, setAddress] = useState(process.env.EXPO_PUBLIC_MULTIPLAYER_URL?.trim() || 'https://serrarunner.onrender.com');
-  const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const busy = status.phase === 'connecting' || status.phase === 'reconnecting';
+  const busy = status.phase === 'connecting' || status.phase === 'reconnecting' || auth.loading;
+  const canConnect = !!auth.session && !!auth.profile && !busy;
   return <Modal visible={visible} transparent animationType="fade" supportedOrientations={['landscape', 'portrait']} onRequestClose={onClose}>
     <SafeAreaView style={styles.backdrop}><View style={styles.panel}>
       <View style={styles.header}>
-        <View style={styles.heading}><Text style={styles.eyebrow}>SERRA RUNNER / MULTIPLAYER</Text><Text style={styles.title}>Jogar online</Text></View>
+        <View style={styles.heading}><Text style={styles.eyebrow}>RAMP RIVALS / MULTIPLAYER</Text><Text style={styles.title}>Jogar online</Text></View>
         <Pressable accessibilityRole="button" accessibilityLabel="Fechar menu online" onPress={onClose} style={styles.secondary}><Text style={styles.secondaryText}>Fechar</Text></Pressable>
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {status.message ? <Text accessibilityLiveRegion="polite" style={styles.message}>{status.message}</Text> : null}
+        {status.phase === 'reconnecting' && <Text accessibilityLiveRegion="polite" style={styles.message}>Lugar reservado · {status.reconnection?.remainingSeconds ?? 0} s restantes. A corrida continua; comandos e buzina estão neutralizados.</Text>}
         {status.room ? <>
           <Text style={styles.label}>CÓDIGO DE CONVITE</Text>
           <Text selectable style={styles.code}>{status.room.code}</Text>
           <Text style={styles.description}>{status.room.players.length}/4 jogadores{status.ping !== null ? ` · ${status.ping} ms` : ''}. Todos devem usar o mesmo servidor.</Text>
-          {status.room.players.map(player => <View key={player.id} style={styles.player}>
-            <View style={[styles.dot, { backgroundColor: vehicles[player.vehicleId].color }]} />
+          {!status.tournament && status.room.players.map(player => <View key={player.id} style={styles.player}>
+            <View style={[styles.dot, { backgroundColor: player.color ?? vehicles[player.vehicleId].color }]} />
             <Text style={styles.playerName}>{player.name}{player.id === status.room?.sessionId ? ' (tu)' : ''}</Text>
             <Text style={styles.description}>{vehicles[player.vehicleId].name}</Text>
           </View>)}
+          {status.tournament && <TournamentLobby state={status.tournament} garage={status.garage} sessionId={status.room.sessionId} available={status.competition?.available ?? false} busy={busy} onAction={onTournament} onVehicle={onVehicle} onPurchase={onPurchase} />}
           <Pressable accessibilityRole="button" onPress={onClose} style={styles.primary}><Text style={styles.primaryText}>Voltar ao jogo</Text></Pressable>
+          {!status.tournament?.started && <>
+          <Text style={styles.description}>Competição: uma volta ao circuito. Repor ou trocar de carro cancela a tentativa. Uma interrupção dentro do prazo conserva o progresso; atravessar um setor durante a ausência invalida a tentativa. O cronómetro continua.</Text>
+          {status.competition?.message ? <Text style={styles.message}>{status.competition.message}</Text> : null}
+          <Pressable accessibilityRole="button" disabled={!status.competition?.available || busy || status.competition?.phase === 'saving' || status.competition?.phase === 'save-error'} onPress={() => onCompetition('start')} style={[styles.primary, (!status.competition?.available || busy || status.competition?.phase === 'saving' || status.competition?.phase === 'save-error') && styles.disabled]}><Text style={styles.primaryText}>Treino individual · guardar volta</Text></Pressable>
+          {status.competition?.phase === 'save-error' && <Pressable accessibilityRole="button" onPress={() => onCompetition('retry')} style={styles.secondary}><Text style={styles.secondaryText}>Tentar guardar resultado novamente</Text></Pressable>}
+          </>}
           <Pressable accessibilityRole="button" onPress={onLeave} style={styles.secondary}><Text style={styles.secondaryText}>Sair da sala · jogar sozinho</Text></Pressable>
         </> : <>
           <Text style={styles.description}>Até 4 condutores na mesma serra. Cria uma sala ou entra com um código.</Text>
-          <Text style={styles.label}>O TEU NOME</Text>
-          <TextInput accessibilityLabel="O teu nome online" placeholder="Condutor" value={name} onChangeText={setName} maxLength={20} editable={!busy} style={styles.input} placeholderTextColor={ui.muted} />
+          <Text style={styles.description}>{auth.loading ? 'A recuperar sessão…' : auth.session ? `Perfil: ${auth.profile?.display_name ?? 'a carregar…'}` : 'Inicia sessão para entrar numa sala e guardar resultados. O jogo local continua disponível.'}</Text>
+          {!auth.configured && <Text style={styles.message}>Supabase ainda não configurado.</Text>}
+          <Pressable accessibilityRole="button" onPress={() => { onClose(); router.push('/account'); }} style={styles.secondary}><Text style={styles.secondaryText}>{auth.session ? 'Gerir conta e perfil' : 'Entrar / Registar'}</Text></Pressable>
           <Text style={styles.label}>SERVIDOR ONLINE</Text>
           <TextInput accessibilityLabel="Endereço do servidor multiplayer" placeholder="https://serrarunner.onrender.com" value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} keyboardType="url" editable={!busy} style={styles.input} placeholderTextColor={ui.muted} />
           <Text style={styles.description}>Os jogadores da sala devem usar o mesmo servidor.</Text>
-          <Pressable accessibilityRole="button" disabled={busy || !address.trim()} onPress={() => onConnect({ address, name })} style={[styles.primary, (busy || !address.trim()) && styles.disabled]}><Text style={styles.primaryText}>Criar sala</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={!canConnect || !address.trim()} onPress={() => onConnect({ address })} style={[styles.primary, (!canConnect || !address.trim()) && styles.disabled]}><Text style={styles.primaryText}>Criar sala</Text></Pressable>
           <View style={styles.joinRow}>
             <TextInput accessibilityLabel="Código da sala" placeholder="Código de 8 caracteres" value={code} onChangeText={value => setCode(value.toUpperCase().replace(/[^A-F0-9]/g, ''))} maxLength={8} autoCapitalize="characters" autoCorrect={false} editable={!busy} style={[styles.input, styles.codeInput]} placeholderTextColor={ui.muted} />
-            <Pressable accessibilityRole="button" disabled={busy || !address.trim() || code.length !== 8} onPress={() => onConnect({ address, name, code })} style={[styles.secondary, (busy || !address.trim() || code.length !== 8) && styles.disabled]}><Text style={styles.secondaryText}>Entrar na sala</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={!canConnect || !address.trim() || code.length !== 8} onPress={() => onConnect({ address, code })} style={[styles.secondary, (!canConnect || !address.trim() || code.length !== 8) && styles.disabled]}><Text style={styles.secondaryText}>Entrar na sala</Text></Pressable>
           </View>
           {busy && <Pressable accessibilityRole="button" onPress={onLeave} style={styles.secondary}><Text style={styles.secondaryText}>Cancelar ligação</Text></Pressable>}
         </>}

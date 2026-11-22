@@ -5,11 +5,20 @@ import { vehicles, type VehicleId } from './vehicles';
 import { fitWheelToTerrain } from './wheel-terrain';
 import { createChassisShape } from './chassis-shape';
 import { addRaceTrackCollisions, raceSpawn } from './race-track';
+import { addChallengeCollisions } from './challenge-collisions';
+import { challengeHeightAt } from './challenge-course';
+import { economyRules, fuelRules } from './economy-config';
+import { enableEconomyCourse, disableEconomyCourse, economyHeightAt } from './economy-course';
+import type { StuntSample } from './stunts';
+import { baseUpgrades, upgradedParameters, validateUpgrades, type UpgradeLevels } from './upgrades';
 
-export type Controls = { left: boolean; right: boolean; throttle: boolean; reverse: boolean; brake: boolean };
+export type Controls = { left: boolean; right: boolean; throttle: boolean; reverse: boolean; brake: boolean; flipForward?: boolean; flipBackward?: boolean };
+export const controlKeys: (keyof Controls)[] = ['left', 'right', 'throttle', 'reverse', 'brake', 'flipForward', 'flipBackward'];
 export const emptyControls = (): Controls => ({ left: false, right: false, throttle: false, reverse: false, brake: false });
 
 export type Gearing = 'low' | 'high';
+type StateVector = { x: number; y: number; z: number };
+export type VehiclePhysicsState = { position: StateVector; quaternion: StateVector & { w: number }; velocity: StateVector; angularVelocity: StateVector; steering: number; competitionFuel?: number; competitionUpgrades?: UpgradeLevels; wheels: { rotation: number; deltaRotation: number; suspensionLength: number; steering: number; isInContact?: boolean }[] };
 const terrainMaterial = new Material('terrain');
 const skidMaterial = new Material('chassis-skid');
 const tyreStopMaterial = new Material('tyre-bump-stop');
@@ -42,7 +51,7 @@ class TerrainSolver extends GSSolver {
   }
 }
 
-export function createPhysicsWorld() {
+export function createPhysicsWorld(includeChallenge = false) {
   const world = new World({ gravity: new Vec3(0, -9.81, 0), solver: new TerrainSolver() });
   world.defaultContactMaterial.friction = 0.65;
   // One friction constraint per contact patch, rather than multiplying drag by
@@ -70,13 +79,17 @@ export function createPhysicsWorld() {
     world.addBody(terrain);
   }
   addRaceTrackCollisions(world, terrainMaterial);
+  if (includeChallenge) addChallengeCollisions(world, terrainMaterial);
   return world;
 }
 
-export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World) {
+export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World, includeChallenge = false) {
   const spec = vehicles[vehicleId];
+  let competitionFuel: number | null = null;
+  let competitionUpgrades = baseUpgrades();
+  let tuning = upgradedParameters(vehicleId, competitionUpgrades);
   const fixedTimeStep = 1 / 60;
-  const world = sharedWorld ?? createPhysicsWorld();
+  const world = sharedWorld ?? createPhysicsWorld(includeChallenge);
   const chassis = new Body({ mass: spec.mass, material: skidMaterial, linearDamping: 0.15, angularDamping: 0.5 });
   chassis.addShape(createChassisShape(spec));
   chassis.addShape(new Box(new Vec3(0.72 * spec.widthScale, 0.45 * spec.heightScale, 0.9 * spec.lengthScale)), new Vec3(0, 0.75 * spec.heightScale, 0.4 * spec.lengthScale));
@@ -140,7 +153,7 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
       bodyRotation.mult(steeringRotation, state.quaternion);
       state.quaternion.mult(spinRotation, state.quaternion);
       state.quaternion.normalize();
-      fitWheelToTerrain(state.position, state.quaternion, bodyRotation, spec.wheelRadius, spec.wheelWidth);
+      fitWheelToTerrain(state.position, state.quaternion, bodyRotation, spec.wheelRadius, spec.wheelWidth, includeChallenge ? challengeHeightAt : competitionFuel !== null ? economyHeightAt : undefined);
     });
     return wheelStates;
   }
@@ -166,6 +179,8 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
   }
   reset();
   const forward = new Vec3();
+  const airTorque = new Vec3(); const localAngular = new Vec3();
+  function bodyContact() { return world.contacts.some(c => c.bi === chassis || c.bj === chassis); }
   const aeroUp = new Vec3(); const aeroForce = new Vec3();
   const applyAerodynamics = () => {
     if (!spec.downforceCoefficient || !vehicle.wheelInfos.some(wheel => wheel.isInContact)) return;
@@ -192,8 +207,21 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
     const drive = (input.throttle ? 1 : 0) - (input.reverse ? 1 : 0);
     const opposing = drive !== 0 && signedSpeed * drive < -0.6;
     const limited = drive > 0 ? signedSpeed > range.forwardLimit : signedSpeed < -range.reverseLimit;
+    let fuelScale = 1;
+    if (competitionFuel !== null) {
+      const use = drive && !input.brake ? fuelRules[vehicleId].litresPerSecond * dt : 0;
+      fuelScale = competitionFuel <= 0 ? 0 : use > 0 ? Math.min(1, competitionFuel / use) : 1;
+      competitionFuel = Math.max(0, competitionFuel - use);
+      const flip = (input.flipBackward ? 1 : 0) - (input.flipForward ? 1 : 0);
+      if (flip && !vehicle.wheelInfos.some(w => w.isInContact) && !bodyContact()) {
+        chassis.vectorToLocalFrame(chassis.angularVelocity, localAngular);
+        const acceleration = Math.max(-tuning.airAcceleration, Math.min(tuning.airAcceleration, (flip * economyRules.maxAirPitchSpeed - localAngular.x) / dt));
+        chassis.quaternion.vmult(new Vec3(chassis.inertia.x * acceleration, 0, 0), airTorque); chassis.applyTorque(airTorque);
+      }
+    }
     for (let i = 0; i < 4; i++) {
-      vehicle.applyEngineForce(input.brake || opposing || limited ? 0 : drive * range.engineForce, i);
+      const engineForce = competitionFuel !== null ? gearing === 'low' ? tuning.lowForce : tuning.highForce : range.engineForce;
+      vehicle.applyEngineForce(input.brake || opposing || limited ? 0 : drive * engineForce * fuelScale, i);
       vehicle.setBrake((input.brake ? (spec.brakeForce ?? 25) : opposing ? 35 : 0) * spec.mass / 700, i);
     }
   }
@@ -211,6 +239,46 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
   }
   return {
     world, chassis, vehicle, step, reset, getWheelTransforms, applyControls, getTelemetry,
+    beginCompetitionEconomy(levels: UpgradeLevels = baseUpgrades()) { competitionUpgrades = validateUpgrades(levels); tuning = upgradedParameters(vehicleId, competitionUpgrades); competitionFuel = tuning.capacity; enableEconomyCourse(world, terrainMaterial); },
+    endCompetitionEconomy() { competitionFuel = null; competitionUpgrades = baseUpgrades(); tuning = upgradedParameters(vehicleId, competitionUpgrades); if (!sharedWorld) disableEconomyCourse(world); },
+    getFuel() { return { fuel: competitionFuel ?? 0, capacity: competitionFuel !== null ? tuning.capacity : fuelRules[vehicleId].capacity, enabled: competitionFuel !== null }; },
+    addFuel(amount: number) { if (competitionFuel !== null && Number.isFinite(amount) && amount > 0) competitionFuel = Math.min(tuning.capacity, competitionFuel + amount); },
+    getStuntSample(): StuntSample {
+      const contacts = world.contacts.filter(c => c.bi === chassis || c.bj === chassis);
+      return { position: { ...chassis.position }, quaternion: { ...chassis.quaternion }, velocity: { ...chassis.velocity }, angularSpeed: chassis.angularVelocity.length(),
+        wheels: vehicle.wheelInfos.filter(w => w.isInContact).length, bodyContact: contacts.length > 0,
+        impact: contacts.reduce((peak, c) => Math.max(peak, Math.abs(c.getImpactVelocityAlongNormal())), 0),
+        clearance: chassis.position.y - (competitionFuel !== null ? economyHeightAt(chassis.position.x, chassis.position.z) : 0) - spec.wheelRadius - spec.suspensionRest };
+    },
+    getState(): VehiclePhysicsState {
+      return { position: { ...chassis.position }, quaternion: { ...chassis.quaternion }, velocity: { ...chassis.velocity }, angularVelocity: { ...chassis.angularVelocity }, steering,
+        ...(competitionFuel !== null ? { competitionFuel, competitionUpgrades: { ...competitionUpgrades } } : {}),
+        wheels: vehicle.wheelInfos.map(w => ({ rotation: w.rotation, deltaRotation: w.deltaRotation, suspensionLength: w.suspensionLength, steering: w.steering, isInContact: w.isInContact })) };
+    },
+    restoreState(state: VehiclePhysicsState) {
+      competitionUpgrades = state.competitionFuel !== undefined ? validateUpgrades(state.competitionUpgrades ?? baseUpgrades()) : baseUpgrades(); tuning = upgradedParameters(vehicleId, competitionUpgrades);
+      if (state.competitionFuel !== undefined) { competitionFuel = Math.max(0, Math.min(tuning.capacity, state.competitionFuel)); enableEconomyCourse(world, terrainMaterial); }
+      else { competitionFuel = null; if (!sharedWorld) disableEconomyCourse(world); }
+      chassis.position.set(state.position.x, state.position.y, state.position.z);
+      chassis.quaternion.set(state.quaternion.x, state.quaternion.y, state.quaternion.z, state.quaternion.w); chassis.quaternion.normalize();
+      chassis.velocity.set(state.velocity.x, state.velocity.y, state.velocity.z);
+      chassis.angularVelocity.set(state.angularVelocity.x, state.angularVelocity.y, state.angularVelocity.z);
+      chassis.force.setZero(); chassis.torque.setZero(); chassis.aabbNeedsUpdate = true;
+      chassis.previousPosition.copy(chassis.position); chassis.interpolatedPosition.copy(chassis.position);
+      chassis.previousQuaternion.copy(chassis.quaternion); chassis.interpolatedQuaternion.copy(chassis.quaternion);
+      steering = state.steering;
+      vehicle.wheelInfos.forEach((wheel, i) => {
+        const s = state.wheels[i]; if (!s) return;
+        wheel.rotation = s.rotation; wheel.deltaRotation = s.deltaRotation; wheel.suspensionLength = s.suspensionLength; wheel.isInContact = s.isInContact ?? false;
+        wheelStates[i].previousRotation = wheelStates[i].rotation = s.rotation;
+        wheelStates[i].previousSuspension = wheelStates[i].suspension = s.suspensionLength;
+        wheelStates[i].previousSteering = wheelStates[i].steering = s.steering;
+        vehicle.setSteeringValue(s.steering, i);
+        if (i < 2) { steeringRotation.setFromAxisAngle(upAxis, s.steering); steeringRotation.mult(axleRotation, chassis.shapeOrientations[tyreShapeIndices[i]]); }
+      });
+      if (!sharedWorld) world.accumulator = 0;
+      chassis.wakeUp();
+    },
     startTrail() { reset(trailStart); },
     startRace(slot = 0) { reset(raceSpawn(slot)); },
     dispose() { world.removeEventListener('postStep', recordWheels); world.removeEventListener('preStep', applyAerodynamics); vehicle.removeFromWorld(world); },

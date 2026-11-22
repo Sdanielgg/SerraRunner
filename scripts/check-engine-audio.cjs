@@ -82,6 +82,14 @@ assert.equal(voices[0].source, 4, 'GT3 has its own engine clip');
 assert(voices[0].playing, 'GT3 engine plays through the same stable mixer');
 mixer.update({ active: true, voices: [idle] }); mixer.tick();
 assert(!voices[1].playing, 'Departing remote vehicles stop their engine sound');
+for (const vehicleId of ['jeep','crawler','rally','gt3']) {
+  mixer.setMuted(true); mixer.setMuted(true);
+  mixer.update({active:true,voices:[{...idle,vehicleId},{...idle,id:'friend',own:false,vehicleId,distance:2}]});
+  mixer.unlock(); for(let i=0;i<5;i++)mixer.tick();
+  assert(voices.every(voice=>!voice.playing&&voice.volume===0),'Saved mute blocks own and remote engines across vehicle/mode changes');
+  mixer.setMuted(false);mixer.tick();assert(voices.some(voice=>voice.playing),'Explicit unmute restores playback without toggling state twice');
+}
+mixer.update({active:true,voices:[idle]}); mixer.tick(.25);
 mixer.silence(); mixer.tick(0.1);
 assert(voices[0].playing && voices[0].volume > 0, 'Opening a menu fades the engine instead of cutting it');
 mixer.tick(0.15); assert(voices.every(voice => !voice.playing), 'Menus/background pause every voice once faded out');

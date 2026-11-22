@@ -1,6 +1,6 @@
 # Engine loops
 
-Original synthesized engine sounds for Serra Runner. Generated deterministically
+Original synthesized engine sounds for Ramp Rivals. Generated deterministically
 with `npm run audio:generate`; no recordings or third-party samples are used.
 
 Each asset is a sixteen-second, mono, 16-bit PCM WAV at 22050 Hz. All oscillators

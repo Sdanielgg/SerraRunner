@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { raceBarriers, raceSamples, raceSpawn, raceTrack } from './race-track';
+import { batchModel } from './trail-models';
 
 export function createRaceTrack() {
   const group = new THREE.Group(); group.name = 'Circuito da Serra';
   const asphalt = new THREE.MeshStandardMaterial({ color: '#454b4b', roughness: 0.95 });
   const white = new THREE.MeshStandardMaterial({ color: '#f2eddb', roughness: 0.8 });
   const dark = new THREE.MeshStandardMaterial({ color: '#263535', roughness: 0.8 });
+  const markings = new THREE.Group(); markings.name = 'Marcações agrupadas'; group.add(markings);
   function ribbon(from: number, to: number, y: number, material: THREE.Material, striped = false) {
     const positions: number[] = []; const indices: number[] = []; const colors: number[] = [];
     const red = new THREE.Color('#bb4c3d'); const pale = new THREE.Color('#f2eddb');
@@ -62,7 +64,8 @@ export function createRaceTrack() {
 
   function box(w: number, h: number, d: number, x: number, y: number, z: number, material = white) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-    mesh.position.set(x, y, z); mesh.receiveShadow = true; group.add(mesh); return mesh;
+    mesh.position.set(x, y, z); mesh.receiveShadow = true;
+    (material === white ? markings : group).add(mesh); return mesh;
   }
   // A level access road meets the opening in the outer rail.
   box(43, 0.004, 10, 42.5, 0.01, 15, asphalt);
@@ -89,7 +92,9 @@ export function createRaceTrack() {
   arrowGeometry.computeVertexNormals();
   for (let i = 8; i < raceSamples.length; i += 24) {
     const point = raceSamples[i]; const arrow = new THREE.Mesh(arrowGeometry, white);
-    arrow.position.set(point.x, 0.022, point.z); arrow.rotation.y = Math.atan2(point.dx, point.dz); group.add(arrow);
+    arrow.position.set(point.x, 0.022, point.z); arrow.rotation.y = Math.atan2(point.dx, point.dz); markings.add(arrow);
   }
+  batchModel(markings);
+  markings.children.forEach(mesh => { mesh.castShadow = false; });
   return group;
 }

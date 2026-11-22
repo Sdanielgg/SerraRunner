@@ -28,6 +28,10 @@ fingers.press(4, 'right'); fingers.press(5, 'brake'); fingers.press(6, 'reverse'
 assert.deepEqual(fingers.release(5), { ...emptyControls(), right: true, reverse: true }, 'Cancelling one touch preserves other active controls');
 assert.deepEqual(fingers.clear(), emptyControls(), 'Reset and backgrounding clear all active fingers');
 assert.deepEqual(fingers.release(6), emptyControls(), 'Late touch-end after reset is harmless');
+fingers.press(1,'throttle'); fingers.press(2,'left'); assert(fingers.press(3,'flipForward').throttle);
+const releasedAir=fingers.release(3);
+assert(releasedAir.left&&releasedAir.throttle&&!releasedAir.flipForward,'Releasing aerial touch keeps steering and throttle');
+fingers.clear();
 console.log('Multi-touch checks passed: simultaneous controls, independent release, cancellation, reset.');
 function simulate(car, seconds, changes = {}, gearing = 'high') {
   let info;
@@ -349,12 +353,12 @@ for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) {
 console.log(`Race circuit checks passed: ${Math.round(raceLength)} m lap, barrier geometry, four grid slots, full clean laps with all ${vehicleList.length} vehicles.`);
 
 // Exercise real scene objects and vehicle swaps without requiring a GPU in CI.
-let renderedScene;
+let renderedScene; let renderedCamera; let currentRenderer; let renderCalls = 0;
 class TestRenderer {
-  constructor() { this.shadowMap = {}; }
+  constructor() { this.shadowMap = {}; currentRenderer = this; }
   setSize() {}
   setClearColor() {}
-  render(scene) { renderedScene = scene; }
+  render(scene, camera) { renderCalls++; renderedScene = scene; renderedCamera = camera; }
   dispose() {}
 }
 const { createScene } = loadGameModule('scene', { three: { ...THREE, WebGLRenderer: TestRenderer } });
@@ -362,6 +366,45 @@ const testScene = createScene({ drawingBufferWidth: 800, drawingBufferHeight: 40
 testScene.frame(1 / 60, emptyControls());
 assert(renderedScene.children.some(object => object.name === 'Serra 4×4'), 'Scene starts with the default model');
 assert(renderedScene.children.some(object => object.name === 'Circuito da Serra'), 'Scene includes the circuit geometry');
+assert.equal(renderedScene.getObjectByName('Marcações agrupadas').children.length, 1, 'Grid and directional arrows are drawn as one static material batch');
+const visibleMeshes = () => { let count = 0; renderedScene.traverseVisible(object => { if (object.isMesh || object.isLineSegments) count++; }); return count; };
+const normalMeshes = visibleMeshes();
+const normalFar = renderedCamera.far;
+testScene.setReducedGraphics(true); testScene.frame(1/60, emptyControls());
+const reducedMeshes = visibleMeshes();
+assert(reducedMeshes < normalMeshes, 'Reduced detail removes only decorative render submissions');
+assert.equal(currentRenderer.shadowMap.enabled, false, 'Reduced quality removes the shadow pass');
+assert(renderedCamera.far < normalFar);
+assert(renderedScene.getObjectByName('Circuito da Serra').visible, 'Track geometry remains visible');
+testScene.setReducedGraphics(false); testScene.frame(1/60, emptyControls());
+assert.equal(visibleMeshes(),normalMeshes);assert.equal(currentRenderer.shadowMap.enabled,true);assert.equal(renderedCamera.far,normalFar);
+console.log(`Render structure: ${normalMeshes} visible mesh/line submissions normal, ${reducedMeshes} reduced, no shadow pass in reduced. CPU fixture; not measured GPU draw calls or FPS.`);
+
+assert.equal(testScene.startChallenge().phase, 'countdown');
+let levelFrame;
+for (let i = 0; i < 180; i++) levelFrame = testScene.frame(1 / 60, { ...emptyControls(), throttle: true });
+assert.equal(levelFrame.challenge.phase, 'running');
+assert.equal(levelFrame.challenge.elapsed, 0, 'The countdown is excluded from the race time');
+const levelCar = renderedScene.children.find(object => object.name === 'Serra 4×4');
+assert(Math.abs(levelCar.position.z - 133) < .1, 'Holding throttle during the countdown cannot move the car');
+testScene.reset();
+assert(testScene.frame(1 / 60, emptyControls()).challenge.elapsed >= 5, 'Scene recovery applies the checkpoint penalty');
+const drawsBeforeMenu = renderCalls;
+const timeBeforeMenu = testScene.frame(1/60, emptyControls(), 'high', false).challenge.elapsed;
+const timeBehindMenu = testScene.frame(1/60, emptyControls(), 'high', false).challenge.elapsed;
+assert.equal(renderCalls,drawsBeforeMenu,'Menus can skip GPU submissions');
+assert(timeBehindMenu > timeBeforeMenu,'Skipping the GPU pass does not pause the challenge clock');
+for (const spec of vehicleList) {
+  assert.equal(testScene.startChallenge(spec.id).vehicleId, spec.id, 'Challenge preserves the selected car');
+  testScene.frame(1 / 60, emptyControls());
+  assert(renderedScene.children.some(object => object.name === spec.name), 'Challenge displays the selected model');
+}
+let releasedChallengeGeometry = 0;
+renderedScene.getObjectByName('Desafio da Serra').traverse(object => { object.geometry?.addEventListener('dispose', () => releasedChallengeGeometry++); });
+testScene.setVehicle('jeep', 'garage'); testScene.startRace();
+assert.equal(testScene.frame(1 / 60, emptyControls()).challenge.phase, 'idle', 'Changing modes exits the timed level');
+assert(!renderedScene.children.find(object => object.name === 'Desafio da Serra'), 'Leaving the level releases its graphics instead of retaining hidden meshes');
+assert(releasedChallengeGeometry > 0, 'Leaving challenge disposes its geometry');
 testScene.startRace(); testScene.frame(1 / 60, emptyControls());
 assert(renderedScene.children.some(object => object.name === 'Serra 4×4' && object.position.x > 60), 'Circuit action moves the current model to the grid');
 let disposedModels = 0;
@@ -423,7 +466,7 @@ try {
   testScene.frame(1 / 60, emptyControls());
   const model = renderedScene.children.find(object => object.name === vehicleList[0].name);
   assert(Math.abs(model.position.z + 89) < 1e-6, 'Online regression test renders the middle of the crest');
-  const wheels = renderedScene.children.filter(object => object.children[0]?.geometry?.type === 'CylinderGeometry');
+  const wheels = renderedScene.children.filter(object => object.userData.vehicleWheel === true);
   assert.equal(wheels.length, 4, 'Online regression test inspects all displayed tyres');
   const poses = wheels.map(wheel => ({ position: wheel.position, quaternion: new Quaternion(wheel.quaternion.x, wheel.quaternion.y, wheel.quaternion.z, wheel.quaternion.w) }));
   assert(lowestTyreClearance(poses, vehicleList[0]) > -0.02, 'Online interpolation keeps tyres above the crest');
@@ -432,8 +475,38 @@ try {
 }
 testScene.leaveNetwork('jeep'); testScene.frame(1 / 60, emptyControls());
 assert.equal(renderedScene.children.filter(object => vehicleList.some(spec => object.name === spec.name)).length, 1, 'Leaving multiplayer restores one local vehicle');
+
+testScene.setNetworkSnapshot({version:1,tick:10000,players:[networkPlayer('own','jeep',0)],tournament:{phase:'race',members:[{id:'own',passed:4}]},economy:{collected:[]}},'own');
+testScene.frame(1/60,emptyControls());
+const markers=renderedScene.getObjectByName('Checkpoints do circuito');
+const economyVisual=renderedScene.getObjectByName('Economia do circuito v2');
+assert(markers.children.every(gate=>gate.children.length===1),'Each checkpoint uses one batched mesh');
+let releasedNetworkGeometry=0;const trackedGeometry=new Set();const trackedMaterials=new Set();let releasedMaterials=0;
+for(const root of [markers,economyVisual])root.traverse(object=>{
+ if(object.geometry&&!trackedGeometry.has(object.geometry)){trackedGeometry.add(object.geometry);object.geometry.addEventListener('dispose',()=>releasedNetworkGeometry++);}
+ const materials=Array.isArray(object.material)?object.material:[object.material];
+ for(const material of materials)if(material&&!trackedMaterials.has(material)){trackedMaterials.add(material);material.addEventListener('dispose',()=>releasedMaterials++);}
+});
+testScene.leaveNetwork('jeep');
+assert.equal(releasedNetworkGeometry,trackedGeometry.size,'All mode-owned online geometry is released once');
+assert.equal(releasedMaterials,trackedMaterials.size,'All online marker/pickup materials are released once');
+assert(!renderedScene.getObjectByName('Checkpoints do circuito')&&!renderedScene.getObjectByName('Economia do circuito v2'));
 testScene.dispose();
+testScene.dispose(); // cleanup is idempotent even after context replacement/unmount
 console.log('Scene checks passed: repeated vehicle swaps, geometry disposal, one active model, camera preservation.');
+
+// Changing presentation detail during a run cannot change the physics or clock.
+for (const spec of vehicleList) {
+  function visualRun(reduced) {
+    const world = createScene({ drawingBufferWidth:800,drawingBufferHeight:400,endFrameEXP(){} },spec.id);
+    world.startChallenge(spec.id);
+    for(let i=0;i<420;i++) { if(i===45||i===230)world.setReducedGraphics(reduced);world.frame(1/60,{...emptyControls(),throttle:true},i<250?'low':'high'); }
+    const body=renderedScene.children.find(object=>object.name===spec.name);
+    const result={position:body.position.toArray(),rotation:body.quaternion.toArray(),challenge:world.frame(1/60,emptyControls()).challenge};
+    world.dispose();return result;
+  }
+  assert.deepEqual(visualRun(true),visualRun(false),`Graphics quality preserves ${spec.id} physics, LOW/HIGH and challenge clock`);
+}
 
 for (const fps of [30, 60, 120, 144]) {
   const rollingCar = createPhysics();

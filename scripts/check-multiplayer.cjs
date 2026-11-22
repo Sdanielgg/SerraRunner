@@ -6,6 +6,8 @@ const { createMultiplayerClient } = require('../build-server/src/game/multiplaye
 const { createPhysics, createPhysicsWorld, emptyControls } = require('../build-server/src/game/physics.js');
 const { NETWORK_VERSION, ROOM_NAME, serverAddress } = require('../build-server/src/game/network-types.js');
 const { createHornPulse } = require('../build-server/src/game/horn-audio.js');
+const { createSupabaseServices } = require('../build-server/server/supabase.js');
+const { createSupabaseFixture } = require('./supabase-fixture.cjs');
 
 async function waitFor(test, message, timeout = 6000) {
   const start = Date.now();
@@ -28,25 +30,35 @@ async function run() {
   carA.dispose(); carB.dispose();
   assert.equal(sharedWorld.bodies.filter(body => body.mass > 0).length, 0, 'Disposal removes player bodies');
 
-  const { game, http } = createGameServer();
+  const fixture = await createSupabaseFixture();
+  const { game, http } = createGameServer(createSupabaseServices(fixture.env));
   const rooms = [];
   let controller; let inputTimer;
   try {
     await game.listen(0, '127.0.0.1');
     const address = `http://127.0.0.1:${http.address().port}`;
     const client = new Client(address);
-    const options = { version: NETWORK_VERSION, name: 'Ana', vehicleId: 'jeep' };
+    const options = { version: NETWORK_VERSION, name: 'Spoofed name', userId: 'spoofed-user-id', accessToken: fixture.tokenFor('Ana'), vehicleId: 'jeep' };
+    await assert.rejects(client.create(ROOM_NAME, { ...options, accessToken: undefined }), /sessão/i);
+    await assert.rejects(client.create(ROOM_NAME, { ...options, accessToken: 'invalid.token.value' }), /inválida|sessão/i);
     const first = await client.create(ROOM_NAME, options); rooms.push(first);
     let latest;
     first.onMessage('snapshot', state => { latest = state; });
     first.onMessage('pong', () => {});
+    first.onMessage('competition', () => {});
     assert.match(first.roomId, /^[A-F0-9]{8}$/, 'Invite code has eight characters');
     for (const [name, vehicleId] of [['Bruno', 'crawler'], ['Carla', 'rally'], ['Diogo', 'gt3']]) {
-      const room = await client.joinById(first.roomId, { ...options, name, vehicleId }); rooms.push(room);
+      const room = await client.joinById(first.roomId, { ...options, name, vehicleId, accessToken: fixture.tokenFor(name) }); rooms.push(room);
       room.onMessage('snapshot', () => {});
+      room.onMessage('competition', () => {});
     }
     await waitFor(() => latest?.players.length === 4, 'four synchronized players');
     assert.equal(new Set(latest.players.map(player => player.body.position.x)).size, 4, 'Players spawn in separate slots');
+    const authenticated = latest.players.find(player => player.id === first.sessionId);
+    assert.equal(authenticated.userId, fixture.users.get('Ana').id, 'The server takes identity from verified Supabase Auth, ignoring a spoofed userId');
+    assert.equal(authenticated.name, 'Ana', 'The server takes the name from the protected profile query');
+    assert.equal(authenticated.color, '#123abc');
+    assert(!JSON.stringify(latest).includes(options.accessToken), 'Snapshots never expose tokens');
     assert.deepEqual(new Set(latest.players.map(player => player.vehicleId)), new Set(['jeep', 'crawler', 'rally', 'gt3']));
     const gridRevisions = new Map(latest.players.map(player => [player.id, player.revision]));
     for (const room of rooms) room.send('reset', 'race');
@@ -64,8 +76,18 @@ async function run() {
     await assert.rejects(client.create(ROOM_NAME, { ...options, version: 999 }), /versão/);
     const separate = await client.create(ROOM_NAME, options); rooms.push(separate);
     let separateState; separate.onMessage('snapshot', state => { separateState = state; });
+    separate.onMessage('competition', () => {});
     await waitFor(() => separateState?.players.length === 1, 'room isolation');
     assert.notEqual(separate.roomId, first.roomId);
+    const short = await client.create(ROOM_NAME, { ...options, accessToken: fixture.tokenFor('Curto', 2) });
+    short.onMessage('snapshot', () => {}); short.onMessage('competition', () => {});
+    let shortClosed = false; const shortLeave = new Promise(resolve => short.onLeave(code => { shortClosed = true; resolve(code); }));
+    await new Promise(resolve => setTimeout(resolve, 200));
+    short.send('auth', fixture.tokenFor('Curto'));
+    await new Promise(resolve => setTimeout(resolve, 2200));
+    assert.equal(shortClosed, false, 'A verified renewed token extends the existing room session');
+    short.send('auth', fixture.tokenFor('Curto', -1));
+    assert.equal(await shortLeave, 4003, 'Expired renewed tokens are rejected by the room');
 
     let seq = 0;
     const own = () => latest.players.find(player => player.id === first.sessionId);
@@ -102,7 +124,7 @@ async function run() {
 
     let status; let networkSnapshot; const phases = [];
     controller = createMultiplayerClient(value => { status = value; phases.push(value.phase); }, snapshot => { networkSnapshot = snapshot; });
-    await controller.connect({ address, code: first.roomId, name: 'Eva', vehicleId: 'crawler' });
+    await controller.connect({ address, code: first.roomId, getAccessToken: async () => fixture.tokenFor('Eva'), vehicleId: 'crawler' });
     await waitFor(() => status.phase === 'online' && networkSnapshot?.players.length === 4, 'app client joins a room');
     const session = status.room.sessionId;
     controller.setInput({ ...emptyControls(), throttle: true }, 'low');
@@ -133,6 +155,7 @@ async function run() {
     controller?.dispose();
     await Promise.allSettled(rooms.map(room => room.leave()));
     await game.gracefullyShutdown(false);
+    await fixture.close();
   }
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

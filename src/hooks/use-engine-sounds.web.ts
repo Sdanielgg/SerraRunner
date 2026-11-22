@@ -1,5 +1,5 @@
 import { Asset } from 'expo-asset';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { createEngineMixer, ENGINE_TICK_MS, type EngineAudioFrame } from '@/game/engine-audio';
 import { createWebEnginePlayer } from '@/game/web-engine-player';
 
@@ -11,11 +11,11 @@ const modules = {
 };
 type Runtime = { context: AudioContext; mixer: ReturnType<typeof createEngineMixer> };
 
-export function useEngineSounds() {
+export function useEngineSounds(muted: boolean) {
   const runtime = useRef<Runtime | null>(null);
   const currentFrame = useRef<EngineAudioFrame>({ active: false, voices: [] });
-  const unlocked = useRef(false); const mutedRef = useRef(false);
-  const [muted, setMuted] = useState(false);
+  const unlocked = useRef(false); const mutedRef = useRef(muted);
+  useEffect(() => { mutedRef.current = muted; runtime.current?.mixer.setMuted(muted); }, [muted]);
   useEffect(() => {
     const Context = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Context) return;
@@ -26,7 +26,7 @@ export function useEngineSounds() {
     const instance = { context, mixer }; runtime.current = instance;
     mixer.update(currentFrame.current);
     if (unlocked.current) mixer.unlock();
-    if (mutedRef.current) mixer.toggle();
+    mixer.setMuted(mutedRef.current);
     const abort = new AbortController();
     let mounted = true;
     const sources = {
@@ -57,11 +57,6 @@ export function useEngineSounds() {
     const live = runtime.current;
     if (live) { void live.context.resume().catch(() => {}); live.mixer.unlock(); }
   }, []);
-  const toggleSound = useCallback(() => {
-    unlocked.current = true; mutedRef.current = !mutedRef.current; setMuted(mutedRef.current);
-    const live = runtime.current;
-    if (live) { void live.context.resume().catch(() => {}); live.mixer.toggle(); }
-  }, []);
   const releaseSound = useCallback(() => {
     currentFrame.current = { ...currentFrame.current, voices: currentFrame.current.voices.map(voice => voice.own ? { ...voice, accelerating: false, braking: false } : voice) };
     runtime.current?.mixer.release();
@@ -69,5 +64,5 @@ export function useEngineSounds() {
   const silenceSound = useCallback(() => {
     currentFrame.current = { active: false, voices: [] }; runtime.current?.mixer.silence();
   }, []);
-  return { muted, updateSound, unlockSound, toggleSound, releaseSound, silenceSound };
+  return { updateSound, unlockSound, releaseSound, silenceSound };
 }

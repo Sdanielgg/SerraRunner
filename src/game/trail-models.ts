@@ -122,8 +122,15 @@ function addRallyBody(body: THREE.Group, m: Materials, spec: VehicleSpec) {
     box([.07, .065, 1.25], [side * .86, -.11, .03], m.dark);
   }
   const cabin = [[-.80,.64,.75],[-.57,1.08,.71],[-.29,1.51,.65],[.10,1.57,.64],[.61,1.51,.65],[.91,1.25,.69],[1.54,.66,.78]];
+  // Use a continuous tangent along the glazing. Easing every section to zero
+  // slope leaves a visible ridge in the windscreen at each control point.
+  const canopyProfile = new THREE.SplineCurve(cabin.map(([z, height]) => new THREE.Vector2(z, height)));
   function canopy(z: number, angle: number, lift = 0): Point {
-    return [sample(cabin, z, 2) * Math.sin(angle), .55 + (sample(cabin, z, 1) - .55) * Math.pow(Math.max(0, Math.cos(angle)), .5) + lift, z];
+    let i = 0;
+    while (i < cabin.length - 2 && z > cabin[i + 1][0]) i++;
+    const t = (z - cabin[i][0]) / (cabin[i + 1][0] - cabin[i][0]);
+    const section = canopyProfile.getPoint((i + t) / (cabin.length - 1));
+    return [sample(cabin, z, 2) * Math.sin(angle), .55 + (section.y - .55) * Math.pow(Math.max(0, Math.cos(angle)), .5) + lift, section.x];
   }
   surface(48, 24, (t, v) => canopy(THREE.MathUtils.lerp(-.80, 1.54, t), (v - .5) * Math.PI), m.glass);
   surface(28, 14, (t, v) => canopy(THREE.MathUtils.lerp(-.29, .65, t), (v - .5) * 1.85, .014), m.dark);
@@ -211,8 +218,9 @@ export function addTrailBody(body: THREE.Group, m: Materials, spec: VehicleSpec)
     [widthAt(1.78), shoulder, 1.78], [-widthAt(1.78), shoulder, 1.78]], bodyPaint);
   box([width * 1.8, .18, .13], [0, .03, -1.80], trim);
   box([width * 1.8, .17, .13], [0, .03, 1.80], trim);
-  box([width * 1.78, shoulder + .06, .06], [0, shoulder / 2, -1.76], bodyPaint);
-  box([width * 1.78, shoulder + .06, .06], [0, shoulder / 2, 1.76], bodyPaint);
+  for (const z of [-1.76, 1.76]) {
+    box([widthAt(z) * 2, shoulder + .06, .06], [0, shoulder / 2, z], bodyPaint);
+  }
 
   if (crawler) {
     // Wrangler TJ-inspired open tub, separate bonnet and exposed cage.
@@ -262,7 +270,10 @@ export function addTrailBody(body: THREE.Group, m: Materials, spec: VehicleSpec)
       box([.13, .035, 1.1], [side * .79, .60, -1.09], trim);
     }
     quad([[-.765, .77, -.49], [.765, .77, -.49], [.686, 1.40, -.38], [-.686, 1.40, -.38]], m.glass);
-    tube([[-.77, .76, -.50], [-.69, 1.43, -.39], [.69, 1.43, -.39], [.77, .76, -.50]], .025, m.paint);
+    for (const side of [-1, 1]) {
+      tube([[side * .77, .76, -.50], [side * .69, 1.43, -.39]], .025, m.paint);
+    }
+    tube([[-.69, 1.43, -.39], [.69, 1.43, -.39]], .025, m.paint);
     box([1.57, .14, 2.16], [0, 1.49, .59], ivory, .045);
     box([1.50, .85, .06], [0, 1.02, 1.67], m.paint);
     box([1.24, .45, .02], [0, 1.15, 1.708], m.glass);
@@ -277,10 +288,10 @@ export function addTrailBody(body: THREE.Group, m: Materials, spec: VehicleSpec)
 export function createTrailWheel(spec: VehicleSpec, m: Materials) {
   const group = new THREE.Group(); const { mesh, box } = builder(group);
   const rally = spec.id === 'rally'; const r = spec.wheelRadius; const w = spec.wheelWidth;
-  const profile = Array.from({ length: 17 }, (_, i) => {
-    const angle = i * Math.PI * 2 / 16;
-    return new THREE.Vector2(r * (.75 + .25 * Math.cos(angle)), w * .5 * Math.sin(angle));
-  });
+  // A broad contact band supports the tread blocks across the tyre width.
+  const profile = [[.50,-.92],[.77,-1],[.92,-.95],[.98,-.82],[1,-.66],
+    [1,.66],[.98,.82],[.92,.95],[.77,1],[.50,.92],[.50,-.92]]
+    .map(([radius, width]) => new THREE.Vector2(radius * r, width * w * .5));
   mesh(new THREE.LatheGeometry(profile, 32), m.dark).rotation.z = Math.PI / 2;
   const rim = r * (rally ? .63 : .54);
   const metal = m.metal;
@@ -308,5 +319,11 @@ export function createTrailWheel(spec: VehicleSpec, m: Materials) {
     const tread = box([w * .43, rally ? .014 : .035, r * (rally ? .10 : .18)], [side * w * .24, Math.cos(a) * r * .985, Math.sin(a) * r * .985], m.dark, 0);
     tread.rotation.x = a;
   }
-  batchModel(group); return group;
+  batchModel(group);
+  // Include the tread blocks in the specified rolling radius, rather than
+  // letting their outer tips float beyond the suspension's contact surface.
+  const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3());
+  const radialScale = r * 2 / size.y;
+  group.scale.set(1, radialScale, radialScale);
+  return group;
 }

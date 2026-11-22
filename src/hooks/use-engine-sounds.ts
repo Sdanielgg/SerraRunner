@@ -1,6 +1,6 @@
 import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
 import { Asset } from 'expo-asset';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { createEngineMixer, ENGINE_TICK_MS, type EngineAudioFrame } from '@/game/engine-audio';
 
 const sources = {
@@ -11,13 +11,13 @@ const sources = {
 };
 const playerOptions = { updateInterval: 1000, preferredForwardBufferDuration: 16, allowsExternalPlayback: false };
 
-export function useEngineSounds() {
+export function useEngineSounds(muted: boolean) {
   const own = useAudioPlayer(null, playerOptions);
   const remoteA = useAudioPlayer(null, playerOptions);
   const remoteB = useAudioPlayer(null, playerOptions);
   const remoteC = useAudioPlayer(null, playerOptions);
   const mixer = useMemo(() => createEngineMixer([own, remoteA, remoteB, remoteC], null), [own, remoteA, remoteB, remoteC]);
-  const [muted, setMuted] = useState(false);
+  useEffect(() => { mixer.setMuted(muted); }, [mixer, muted]);
   useEffect(() => {
     let mounted = true;
     void Promise.all([
@@ -37,8 +37,7 @@ export function useEngineSounds() {
   }, [mixer]);
   const updateSound = useCallback((frame: EngineAudioFrame) => mixer.update(frame), [mixer]);
   const unlockSound = useCallback(() => mixer.unlock(), [mixer]);
-  const toggleSound = useCallback(() => setMuted(mixer.toggle()), [mixer]);
   const silenceSound = useCallback(() => mixer.silence(), [mixer]);
   const releaseSound = useCallback(() => mixer.release(), [mixer]);
-  return { muted, updateSound, unlockSound, toggleSound, releaseSound, silenceSound };
+  return { updateSound, unlockSound, releaseSound, silenceSound };
 }

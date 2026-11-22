@@ -5,5 +5,5 @@
     "esModuleInterop": true, "skipLibCheck": true, "types": ["node"],
     "ignoreDeprecations": "6.0"
   },
-  "include": ["./**/*.ts", "../src/game/physics.ts", "../src/game/terrain.ts", "../src/game/vehicles.ts", "../src/game/network-types.ts", "../src/game/multiplayer-client.ts"]
+  "include": ["./**/*.ts", "../src/game/physics.ts", "../src/game/terrain.ts", "../src/game/vehicles.ts", "../src/game/network-types.ts", "../src/game/multiplayer-client.ts", "../src/game/prediction.ts"]
 }

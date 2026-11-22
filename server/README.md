@@ -1,13 +1,15 @@
-# Multiplayer pela Internet
+# Ramp Rivals — Multiplayer pela Internet
 
-O servidor Node.js/Colyseus gere salas privadas por código, até quatro jogadores por sala, um mundo de cannon-es por sala e colisões entre veículos. Corre a física a 60 Hz e envia snapshots a 20 Hz. O cliente apresenta os veículos com um pequeno buffer de interpolação (80 ms), incluindo as rodas e a suspensão.
+O servidor Node.js/Colyseus gere salas privadas por código, até quatro jogadores por sala, um mundo de cannon-es por sala e colisões entre veículos. Corre a física a **60 Hz** e envia snapshots a **20 Hz**, confirmados no teste de rede. O carro local usa predição/reconciliação com ACK e estado de física; os adversários mantêm o buffer de interpolação de 80 ms, incluindo as rodas e a suspensão. O lobby e as rondas estão descritos em [competição multiplayer](../docs/multiplayer-competition.md).
+
+As salas exigem uma conta Supabase. Antes de publicar ou testar, aplica as migrações e configura `server/.env.local` ou as variáveis do alojamento segundo [docs/supabase-setup.md](../docs/supabase-setup.md). O servidor verifica tokens com Supabase Auth e nunca confia num `userId` enviado pelo cliente. A chave secreta só existe no servidor. Sem chave secreta, as competições com persistência ficam indisponíveis.
 
 ## Publicar no Render
 
 1. Coloca este projeto num repositório Git acessível à tua conta Render, incluindo `package-lock.json` e `render.yaml`.
 2. No Render, cria um **Blueprint**, liga o repositório e seleciona `render.yaml`. Se esta pasta estiver dentro de outra pasta no repositório, configura a localização do Blueprint/Root Directory em conformidade.
 3. Revê o serviço `serra-runner-multiplayer` e cria-o. O exemplo usa o plano Free e uma única instância em Frankfurt.
-4. Espera pelo fim do deploy e abre `https://NOME-DO-SERVIDOR.onrender.com/health`. Deverá responder com `{"game":"Serra Runner","version":1,"status":"ok"}`.
+4. Espera pelo fim do deploy e abre `https://NOME-DO-SERVIDOR.onrender.com/health`. Deverá responder com `{"game":"Ramp Rivals","version":10,"status":"ok"}` (versão atual do protocolo). Este endpoint confirma o processo, não as credenciais ou migrações Supabase.
 5. Abre **Online** no jogo e introduz o endereço base `https://NOME-DO-SERVIDOR.onrender.com`, sem `/health`. Também aceita `wss://NOME-DO-SERVIDOR.onrender.com`.
 6. Um jogador carrega em **Criar sala** e partilha o código de oito caracteres. Os outros usam o mesmo endereço e **Entrar na sala**. Podem estar em redes Wi-Fi diferentes ou em dados móveis.
 
@@ -19,7 +21,7 @@ O plano Free pode suspender o serviço quando está inativo. No primeiro acesso,
 
 O menu Online usa `https://serrarunner.onrender.com` por defeito. O campo Servidor Online permite trocar o endereço sem recompilar. Para configurar outro endereço por defeito, copia `.env.example` para `.env.local`, troca o endereço pelo teu e reinicia o Expo. Em builds distribuídas, define `EXPO_PUBLIC_MULTIPLAYER_URL` durante o build. Esta variável é pública e não deve conter credenciais.
 
-O jogo também tem de estar disponível para os teus amigos: podes distribuir uma build mobile ou alojar a versão web. O servidor multiplayer e o servidor de desenvolvimento Expo são serviços diferentes; o endereço da sala deve apontar para o servidor Node, não para o Metro.
+O jogo também tem de estar disponível para os teus amigos: podem abrir o projeto no Expo Go físico compatível com SDK 58 ou usar a versão web alojada. O servidor multiplayer e o servidor de desenvolvimento Expo são serviços diferentes; o endereço da sala deve apontar para o servidor Node, não para o Metro.
 
 ## Testar no computador
 
@@ -38,25 +40,34 @@ Noutro terminal:
 npm start
 ```
 
-Abre duas instâncias web do jogo. Em **Online**, usa `http://localhost:2567`, cria uma sala numa instância e entra com o código na outra. Num telemóvel, `localhost` aponta para o próprio telemóvel; para o teste remoto usa o servidor publicado. URLs públicas têm de usar HTTPS/WSS.
+Abre duas instâncias web do jogo com duas contas reais autenticadas. Em **Online**, usa `http://localhost:2567`, cria uma sala numa instância e entra com o código na outra. Num telemóvel, `localhost` aponta para o próprio telemóvel; para o teste remoto usa o servidor publicado. URLs públicas têm de usar HTTPS/WSS.
 
 ## Comportamento
 
 - Cada jogador entra com o veículo selecionado. **Veículos** permite trocar de modelo e escolher entre o plano e a pista, com uma posição inicial diferente para cada jogador.
-- **Circuito** leva cada jogador à sua posição na grelha do Circuito da Serra, em High. Os quatro lugares são separados e as barreiras usam o mesmo traçado no servidor e no jogo. A versão do protocolo é 5: publica o servidor e o site atualizados para usarem o mesmo mapa, as novas dimensões do Serra GT3 e as buzinas sincronizadas.
+- **Circuito** leva cada jogador à sua posição na grelha do Circuito da Serra, em High. Os quatro lugares são separados e as barreiras usam o mesmo traçado no servidor e no jogo. A versão do protocolo é 10: publica o servidor e o site atualizados para usarem o mesmo mapa, dimensões do Serra GT3, buzinas, garagem e economia sincronizadas.
 - Cada clique na buzina envia um toque curto com tom aleatório, sincronizado nos snapshots. Os clientes calculam o volume pela distância (até 80 m); o servidor desliga a buzina ao repor/trocar o veículo, perder a ligação ou deixar de receber comandos durante 500 ms.
 - Os comandos e Low/High são enviados ao servidor; os clientes não escolhem a sua posição. A força dos travões, limites de velocidade e terreno são os mesmos do modo individual.
 - Ao abrir um menu ou colocar a aplicação em segundo plano, os comandos desse jogador são libertados. A sala continua a simular para os restantes jogadores.
-- Após uma quebra de rede, o cliente tenta voltar automaticamente à mesma sessão. O servidor reserva o lugar por 15 segundos. Se não recuperar, podes voltar a entrar manualmente com o código enquanto a sala existir.
+- Após uma quebra de rede, a reserva dura 30 segundos (`RECONNECT_WINDOW_SECONDS`, configurável até 300). A API Colyseus 0.16 e o token Supabase da mesma conta retomam a mesma sessão, validada antes de consumir a reserva. Código de convite não recupera identidade. O carro continua físico com travão e sem comandos/buzina; estado e operações idempotentes conservam-se. Expiração remove o carro e transfere anfitrião. Sem restauro após reinício do processo. Regras completas: [reconexão](../docs/multiplayer-competition.md#entradas-anfitrião-e-reconexões).
 - **Sair da sala** regressa ao modo individual. As salas desaparecem quando ficam vazias e não persistem após reiniciar o servidor.
-- Esta primeira versão usa interpolação, sem previsão local dos comandos. A resposta da direção depende da latência da ligação; escolhe uma região próxima dos jogadores.
-- O código funciona como convite, sem contas ou autenticação persistente. Esta configuração limita cada processo a 32 salas e cada sala a quatro jogadores; não é uma configuração de escala automática.
+- Comandos são produzidos em passos de 60 Hz e enviados em lotes a 30 Hz. O servidor valida sequências e só aplica um comando por passo; snapshots incluem confirmação e estado para restaurar/repetir os comandos pendentes do cliente. Colisões definitivas continuam exclusivamente na física partilhada da sala.
+- O código funciona como convite e a identidade é validada pelo Supabase Auth. Esta configuração limita cada processo a 32 salas e cada sala a quatro jogadores; não é uma configuração de escala automática.
+- A competição por rondas exige 2–4 jogadores prontos e anfitrião. Após o início, `lock()` e validações bloqueiam novas ligações, permitindo reconexões válidas. Cada vitória vale 1 ponto; objetivo normal 15 e demo 3. Sem chegada válida, nenhum ponto. O Desafio da Serra e os seus 30 checkpoints não mudam.
+- A economia é autoritativa. `settle_competition_round` confirma resultados, pontos, recompensas, saldo, movimentos e estatísticas numa única transação. Aplicar as quatro migrações, incluindo `20261113000400_garage_persistence.sql`. Créditos ficam a guardar até fechar a ronda; a fila não confirmada continua em memória.
+- Compras na garagem usam UUID emitido pelo servidor e `purchase_vehicle_upgrade`: participação/fase, catálogo, nível e saldo validados, locks e débito/nível atómicos. Níveis confirmados só equipam a próxima ronda; saldo global existente preservado e melhorias por participante/competição/veículo. Estado/resultados anteriores preservados. [Garagem e persistência](../docs/garage-persistence.md).
 
 ## Verificação
 
 ```sh
 npm run test:multiplayer
 npm run test:physics
+npm run test:auth
+npm run test:database
+npm run test:competition
+npm run test:tournament
+npm run test:tournament:online
+npm run test:prediction
 npm run typecheck
 npm run lint
 ```

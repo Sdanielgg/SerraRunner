@@ -17,7 +17,7 @@ export default function VehicleGarage({ visible, current, onClose, onTest }: Pro
       <View style={styles.panel}>
         <View style={styles.header}>
           <View style={styles.heading}>
-            <Text style={styles.eyebrow}>SERRA RUNNER / {vehicleList.length} VEÍCULOS</Text>
+            <Text style={styles.eyebrow}>RAMP RIVALS / {vehicleList.length} VEÍCULOS</Text>
             <Text style={styles.title}>Garagem</Text>
             <Text style={styles.subtitle}>Escolhe o veículo e onde queres conduzir.</Text>
           </View>
@@ -36,26 +36,25 @@ export default function VehicleGarage({ visible, current, onClose, onTest }: Pro
             <Text style={styles.name}>{spec.name}</Text>
             <View style={styles.stats}>
               <View style={styles.stat}><Text style={styles.statValue}>≈ {Math.round(groundClearance(spec) * 100)} cm</Text><Text style={styles.statLabel}>Altura ao solo</Text></View>
-              <View style={styles.stat}><Text style={styles.statValue}>{Math.round(spec.high.forwardLimit * 3.6)} km/h</Text><Text style={styles.statLabel}>Máxima em High</Text></View>
-              <View style={styles.stat}><Text style={styles.statValue}>{Math.round(spec.low.forwardLimit * 3.6)} km/h</Text><Text style={styles.statLabel}>Máxima em Low</Text></View>
+              <View style={styles.stat}><Text style={styles.statValue}>{Math.round(spec.high.forwardLimit * 3.6)} km/h</Text><Text style={styles.statLabel}>Velocidade máxima</Text></View>
               <View style={styles.stat}><Text style={styles.statValue}>{Math.round(spec.suspensionTravel * 100)} cm</Text><Text style={styles.statLabel}>Curso de suspensão</Text></View>
             </View>
             <Text style={styles.benefit}>{spec.benefit}</Text>
             <Text style={styles.tradeoff}>{spec.tradeoff}</Text>
             <View style={styles.buttons}>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} no circuito de corridas em High`} onPress={() => onTest(spec.id, 'race')} style={styles.testFlat}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} no circuito de corridas`} onPress={() => onTest(spec.id, 'race')} style={styles.testFlat}>
                 <Text style={styles.testFlatText}>Circuito →</Text>
               </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} na pista em Low`} onPress={() => onTest(spec.id, 'trail')} style={styles.testTrail}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} na pista todo-o-terreno`} onPress={() => onTest(spec.id, 'trail')} style={styles.testTrail}>
                 <Text style={styles.testTrailText}>Todo-o-terreno →</Text>
               </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} no plano em High`} onPress={() => onTest(spec.id, 'garage')} style={styles.testFlat}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Testar ${spec.name} no plano`} onPress={() => onTest(spec.id, 'garage')} style={styles.testFlat}>
                 <Text style={styles.testFlatText}>Condução livre →</Text>
               </Pressable>
             </View>
           </View>)}
         </ScrollView>
-        <Text style={styles.note}>Valores aproximados em plano. A altura varia com a suspensão; podes mudar Low/High durante o teste.</Text>
+        <Text style={styles.note}>Valores aproximados em plano. A altura varia com a suspensão; a transmissão é selecionada pelo percurso.</Text>
       </View>
     </SafeAreaView>
   </Modal>;

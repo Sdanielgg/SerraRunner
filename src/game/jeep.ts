@@ -14,6 +14,7 @@ export function createJeep(spec: VehicleSpec = vehicles.jeep) {
   const lamp = new THREE.MeshStandardMaterial({ color: '#fff2bd', emissive: '#eac77b', emissiveIntensity: 0.35 });
   const red = new THREE.MeshStandardMaterial({ color: '#ba4c38' });
   const materials = { paint, dark, metal, glass, lamp, red };
+  let appliedColor = spec.color;
   if (spec.id === 'gt3') addGT3Body(body, materials, spec);
   else addTrailBody(body, materials, spec);
   function wheel() {
@@ -24,5 +25,9 @@ export function createJeep(spec: VehicleSpec = vehicles.jeep) {
   }
   if (spec.id !== 'gt3') batchModel(body);
   body.scale.set(spec.widthScale, spec.heightScale, spec.lengthScale);
-  return { body, wheels: Array.from({ length: 4 }, wheel) };
+  // Independent suspension transforms can share one set of wheel geometries.
+  const firstWheel = wheel();
+  firstWheel.userData.vehicleWheel = true;
+  return { body, setColor: (color: string) => { if (color !== appliedColor) { paint.color.set(color); appliedColor = color; } },
+    wheels: [firstWheel, firstWheel.clone(), firstWheel.clone(), firstWheel.clone()] };
 }

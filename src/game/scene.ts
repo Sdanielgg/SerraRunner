@@ -1,13 +1,24 @@
 import type { ExpoWebGLRenderingContext } from 'expo-gl';
 import * as THREE from 'three';
 import { createJeep } from './jeep';
-import { Controls, createPhysics, type Gearing } from './physics';
+import { Controls, createPhysics, emptyControls, type Gearing } from './physics';
 import { createOrbitCamera } from './orbit-camera';
 import { terrainHeightAt, terrainHeights, trail } from './terrain';
 import { vehicles, type VehicleId } from './vehicles';
 import { fitWheelToTerrain } from './wheel-terrain';
-import type { PlayerSnapshot, Pose, RoomSnapshot, TestLocation } from './network-types';
+import type { InputCommand, PlayerSnapshot, Pose, RoomSnapshot, TestLocation } from './network-types';
 import { createRaceTrack } from './race-track-scene';
+import { createChallengeScene } from './challenge-scene';
+import { createChallengeRun } from './challenge-run';
+import { challengeHeightAt, challengeInTunnel, challengeSpawn, challengeTunnel } from './challenge-course';
+import { createPrediction } from './prediction';
+import { networkTiming } from './network-config';
+import { createCircuitMarkers } from './circuit-race-scene';
+import { createEconomyScene } from './economy-scene';
+import { economyHeightAt } from './economy-course';
+import { graphicQuality } from './interface-config';
+
+const sessionBestTimes: Partial<Record<VehicleId, number>> = {};
 
 export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: VehicleId = 'jeep') {
   // Native GL has no DOM canvas. Three only needs this small surface adapter.
@@ -25,12 +36,16 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
   renderer.setClearColor('#c8d7ce');
   const scene = new THREE.Scene();
   scene.add(createRaceTrack());
+  let challengeScene: ReturnType<typeof createChallengeScene> | null = null;
+  const challenge = createChallengeRun(sessionBestTimes);
+  let circuitMarkers: ReturnType<typeof createCircuitMarkers> | null = null;
+  let economyScene: ReturnType<typeof createEconomyScene> | null = null;
   scene.fog = new THREE.Fog('#c8d7ce', 65, 180);
-  const camera = new THREE.PerspectiveCamera(46, gl.drawingBufferWidth / gl.drawingBufferHeight, 0.1, 280);
+  const camera = new THREE.PerspectiveCamera(46, gl.drawingBufferWidth / gl.drawingBufferHeight, 0.1, graphicQuality.normalFar);
   scene.add(new THREE.HemisphereLight('#fff7dc', '#677f67', 2.4));
   const sun = new THREE.DirectionalLight('#fff1cf', 3);
   sun.position.set(-16, 25, -12); sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.mapSize.set(graphicQuality.shadowMapSize, graphicQuality.shadowMapSize);
   Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 18, bottom: -18, near: 0.5, far: 70 });
   sun.shadow.bias = -0.001; sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
@@ -39,9 +54,10 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
   const pad = new THREE.Mesh(new THREE.PlaneGeometry(42, 42), new THREE.MeshStandardMaterial({ color: '#c1bb9e', roughness: 1 }));
   pad.rotation.x = -Math.PI / 2; pad.position.y = 0.008; pad.receiveShadow = true; scene.add(pad);
   const grid = new THREE.GridHelper(42, 14, '#b1ad92', '#b1ad92');
+  const decoration = new THREE.Group(); scene.add(decoration);
   grid.position.y = 0.014;
   (grid.material as THREE.Material).transparent = true;
-  (grid.material as THREE.Material).opacity = 0.32; scene.add(grid);
+  (grid.material as THREE.Material).opacity = 0.32; decoration.add(grid);
   // The triangle diagonal matches Cannon's Heightfield, including uneven cells.
   const positions: number[] = []; const colors: number[] = []; const indices: number[] = [];
   const earth = new THREE.Color('#a18b64'); const rock = new THREE.Color('#797e70');
@@ -73,16 +89,18 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
     for (const x of [-40, -30]) {
       const pole = new THREE.Mesh(poleGeometry, poleMaterial); pole.position.set(x, 1.25, z);
       const flag = new THREE.Mesh(flagGeometry, flagMaterial); flag.position.set(x + 0.3, 2.15, z);
-      scene.add(pole, flag);
+      decoration.add(pole, flag);
     }
   }
   const border = new THREE.Mesh(new THREE.RingGeometry(23, 23.12, 64), new THREE.MeshBasicMaterial({ color: '#e5dfc0', side: THREE.DoubleSide }));
-  border.rotation.x = -Math.PI / 2; border.position.y = 0.02; scene.add(border);
+  border.rotation.x = -Math.PI / 2; border.position.y = 0.02; decoration.add(border);
   let jeep = createJeep(vehicles[initialVehicle]); scene.add(jeep.body, ...jeep.wheels);
   let physics = createPhysics(initialVehicle);
   let visualVehicle = initialVehicle;
+  let preferredColor: string | null = null;
   let onlineSession: string | null = null;
   let ownRevision = -1;
+  const prediction = createPrediction();
   const snapshots: { state: RoomSnapshot; time: number }[] = [];
   const remoteModels = new Map<string, { model: ReturnType<typeof createJeep>; vehicleId: VehicleId }>();
   const rotationA = new THREE.Quaternion(); const rotationB = new THREE.Quaternion();
@@ -96,11 +114,15 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
   let snapCamera = true;
   let width = gl.drawingBufferWidth;
   let height = gl.drawingBufferHeight;
+  let disposed = false;
+  const blockedControls = { ...emptyControls(), brake: true };
+  const noInputs: InputCommand[] = [];
+  const frameInfo = { speed: 0, reverse: false, challenge: challenge.status(), networkInputs: noInputs };
   function liftAboveTerrain(position: THREE.Vector3) {
-    position.y = Math.max(position.y, terrainHeightAt(position.x, position.z) + 1.2);
+    position.y = Math.max(position.y, (challengeScene ? challengeHeightAt(position.x, position.z) : terrainHeightAt(position.x, position.z)) + 1.2);
   }
-  function disposeObjects(objects: THREE.Object3D[]) {
-    const geometries = new Set<THREE.BufferGeometry>(); const materials = new Set<THREE.Material>();
+  function disposeObjects(objects: THREE.Object3D[], extraMaterials: THREE.Material[] = []) {
+    const geometries = new Set<THREE.BufferGeometry>(); const materials = new Set<THREE.Material>(extraMaterials);
     objects.forEach(root => root.traverse(object => {
       if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
         geometries.add(object.geometry);
@@ -113,6 +135,14 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
   function removeModel(model: ReturnType<typeof createJeep>) {
     const objects = [model.body, ...model.wheels]; scene.remove(...objects); disposeObjects(objects);
   }
+  function releaseChallenge() {
+    if (!challengeScene) return;
+    scene.remove(challengeScene.group); disposeObjects([challengeScene.group]); challengeScene = null;
+  }
+  function releaseNetworkVisuals() {
+    for (const item of [economyScene, circuitMarkers]) if (item) { scene.remove(item.group); disposeObjects([item.group], 'materials' in item ? item.materials : []); }
+    economyScene = null; circuitMarkers = null;
+  }
   function pose(object: THREE.Object3D, from: Pose, to: Pose, alpha: number) {
     object.position.set(from.position.x, from.position.y, from.position.z).lerp(to.position as THREE.Vector3, alpha);
     rotationA.set(from.quaternion.x, from.quaternion.y, from.quaternion.z, from.quaternion.w);
@@ -120,19 +150,20 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
     object.quaternion.copy(rotationA).slerp(rotationB, alpha);
   }
   function updateModel(model: ReturnType<typeof createJeep>, from: PlayerSnapshot, to: PlayerSnapshot, alpha: number) {
+    model.setColor(to.color ?? vehicles[to.vehicleId].color);
     if (from.revision !== to.revision || from.vehicleId !== to.vehicleId) { from = to; alpha = 1; }
     pose(model.body, from.body, to.body, alpha);
     const spec = vehicles[to.vehicleId];
     model.wheels.forEach((wheel, i) => {
       if (!from.wheels[i] || !to.wheels[i]) return;
       pose(wheel, from.wheels[i], to.wheels[i], alpha);
-      fitWheelToTerrain(wheel.position, wheel.quaternion, model.body.quaternion, spec.wheelRadius, spec.wheelWidth);
+      fitWheelToTerrain(wheel.position, wheel.quaternion, model.body.quaternion, spec.wheelRadius, spec.wheelWidth, to.physics?.competitionFuel !== undefined ? economyHeightAt : undefined);
     });
   }
   function renderOnline() {
     if (!snapshots.length) return onlineTelemetry;
     const latest = snapshots[snapshots.length - 1];
-    const targetTime = Date.now() - 80;
+    const targetTime = Date.now() - networkTiming.interpolationMs;
     let before = snapshots[0]; let after = latest;
     for (const item of snapshots) {
       if (item.time <= targetTime) before = item;
@@ -150,8 +181,19 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
         }
         if (ownRevision !== player.revision) { snapCamera = true; ownRevision = player.revision; }
         jeep.body.visible = true; jeep.wheels.forEach(wheel => { wheel.visible = true; });
-        updateModel(jeep, from, to, alpha);
-        onlineTelemetry = { speed: player.speed, reverse: player.reverse };
+        const predicted = prediction.pose();
+        if (predicted) {
+          const { car, offset } = predicted;
+          jeep.setColor(player.color ?? vehicles[player.vehicleId].color);
+          jeep.body.position.set(car.chassis.position.x + offset.x, car.chassis.position.y + offset.y, car.chassis.position.z + offset.z);
+          jeep.body.quaternion.set(car.chassis.quaternion.x, car.chassis.quaternion.y, car.chassis.quaternion.z, car.chassis.quaternion.w);
+          const transforms = car.getWheelTransforms(false);
+          jeep.wheels.forEach((wheel, i) => {
+            const t = transforms[i]; wheel.position.set(t.position.x + offset.x, t.position.y + offset.y, t.position.z + offset.z);
+            wheel.quaternion.set(t.quaternion.x, t.quaternion.y, t.quaternion.z, t.quaternion.w);
+          });
+          onlineTelemetry = predicted.telemetry;
+        } else { updateModel(jeep, from, to, alpha); onlineTelemetry = { speed: player.speed, reverse: player.reverse }; }
       } else {
         let entry = remoteModels.get(player.id);
         if (entry && entry.vehicleId !== player.vehicleId) { removeModel(entry.model); remoteModels.delete(player.id); entry = undefined; }
@@ -167,8 +209,14 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
     }
     return onlineTelemetry;
   }
-  function frame(dt: number, controls: Controls, gearing: Gearing = 'high') {
-    const telemetry = onlineSession ? renderOnline() : physics.step(dt, controls, gearing);
+  function frame(dt: number, controls: Controls, gearing: Gearing = 'high', draw = true) {
+    const networkInputs: InputCommand[] = onlineSession ? prediction.advance(dt, controls, gearing) : noInputs;
+    if (!onlineSession) jeep.setColor(preferredColor ?? vehicles[visualVehicle].color);
+    const run = frameInfo.challenge;
+    const blocked = run.phase === 'countdown' || run.phase === 'finished';
+    const telemetry = onlineSession ? renderOnline() : physics.step(dt, blocked ? blockedControls : controls, gearing);
+    const level = challengeScene ? challenge.step(Math.min(dt, .05), physics.chassis.position) : run;
+    challengeScene?.update(level.passed);
     if (!onlineSession) {
     const { chassis } = physics;
     jeep.body.position.copy(chassis.interpolatedPosition);
@@ -184,11 +232,13 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
       renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
     }
     const portrait = width < height;
+    const tunnelCamera = cameraMode !== 2 && challengeScene !== null && challengeInTunnel(jeep.body.position.x, jeep.body.position.z);
     if (cameraMode === 2) {
       const position = orbit.offset(portrait ? 17 : 13);
       offset.set(position.x, position.y, position.z);
     } else {
       offset.set(cameraMode === 0 ? 5.8 : 0, cameraMode === 0 ? 4.4 : 6.7, cameraMode === 0 ? 8.8 : 10.8);
+      if (tunnelCamera) offset.set(0, 1.9, 6.5);
       if (portrait) offset.multiplyScalar(1.25);
       offset.applyQuaternion(jeep.body.quaternion);
     }
@@ -197,16 +247,34 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
     // Lift both the desired and smoothed camera positions above the actual mesh.
     liftAboveTerrain(desired);
     camera.position.lerp(desired, snapCamera ? 1 : 1 - Math.exp(-dt * 4));
+    if (tunnelCamera) {
+      camera.position.y = Math.min(camera.position.y, challengeTunnel.clearance - .3);
+      camera.position.x = THREE.MathUtils.clamp(camera.position.x, challengeTunnel.x - 3.2, challengeTunnel.x + 3.2);
+    }
     liftAboveTerrain(camera.position);
     target.copy(jeep.body.position); target.y += 0.5;
     camera.lookAt(target); snapCamera = false;
     sun.position.copy(target).add(sunOffset); sun.target.position.copy(target);
-    renderer.render(scene, camera); gl.endFrameEXP();
-    return telemetry;
+    if (draw) { renderer.render(scene, camera); gl.endFrameEXP(); }
+    frameInfo.speed = telemetry.speed; frameInfo.reverse = telemetry.reverse;
+    frameInfo.challenge = level; frameInfo.networkInputs = networkInputs;
+    return frameInfo;
   }
   return {
     frame,
+    setReducedGraphics(reduced: boolean) {
+      // Only visual detail changes. Track surfaces, barriers, checkpoints,
+      // pickups and all vehicle bodies remain visible and physically identical.
+      renderer.shadowMap.enabled = !reduced; sun.castShadow = !reduced;
+      decoration.visible = !reduced;
+      camera.far = reduced ? graphicQuality.reducedFar : graphicQuality.normalFar; camera.updateProjectionMatrix();
+      if (reduced && sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    },
+    setPreferredColor(color: string | null) { preferredColor = color; },
+    clearPredictionInput() { prediction.clearPending(); },
+    suspendPrediction() { prediction.suspend(); },
     setVehicle(id: VehicleId, location: TestLocation) {
+      frameInfo.challenge = challenge.cancel(); releaseChallenge();
       const oldObjects = [jeep.body, ...jeep.wheels];
       scene.remove(...oldObjects); disposeObjects(oldObjects);
       physics.dispose();
@@ -218,31 +286,70 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
       snapCamera = true; orbit.cancel();
     },
     setNetworkSnapshot(snapshot: RoomSnapshot, sessionId: string) {
+      if (onlineSession === sessionId && snapshots.length && snapshot.tick <= snapshots[snapshots.length - 1].state.tick) return;
+      const round = snapshot.tournament;
+      if (snapshot.economy && !economyScene) { economyScene = createEconomyScene(); scene.add(economyScene.group); }
+      if (round && !circuitMarkers) { circuitMarkers = createCircuitMarkers(); scene.add(circuitMarkers.group); }
+      if (economyScene) {
+        economyScene.group.visible = !!snapshot.economy && (round?.phase === 'race' || round?.phase === 'countdown' || round?.phase === 'results');
+        economyScene.update(snapshot.economy?.collected ?? []);
+      }
+      if (circuitMarkers) { circuitMarkers.group.visible = round?.phase === 'race' || round?.phase === 'countdown';
+        if (round) circuitMarkers.update(round.members.find(m => m.id === sessionId)?.passed ?? 0); }
+      if (challengeScene) { frameInfo.challenge = challenge.cancel(); releaseChallenge(); }
       if (onlineSession !== sessionId) {
         onlineSession = sessionId; ownRevision = -1; snapshots.length = 0;
         jeep.body.visible = false; jeep.wheels.forEach(wheel => { wheel.visible = false; });
         snapCamera = true;
       }
       if (snapshots.length && snapshot.tick <= snapshots[snapshots.length - 1].state.tick) return;
+      prediction.reconcile(snapshot, sessionId);
       snapshots.push({ state: snapshot, time: Date.now() });
       if (snapshots.length > 8) snapshots.shift();
     },
     leaveNetwork(id: VehicleId) {
+      releaseNetworkVisuals();
+      prediction.dispose();
       onlineSession = null; snapshots.length = 0; ownRevision = -1;
       for (const entry of remoteModels.values()) removeModel(entry.model);
       remoteModels.clear(); onlineTelemetry = { speed: 0, reverse: false };
       this.setVehicle(id, 'garage');
     },
-    reset() { physics.reset(); snapCamera = true; },
-    startTrail() { physics.startTrail(); snapCamera = true; orbit.cancel(); },
-    startRace() { physics.startRace(); snapCamera = true; orbit.cancel(); },
+    reset() {
+      const recovery = challenge.recover();
+      if (recovery) physics.reset(recovery);
+      else if (challenge.status().phase !== 'idle') return;
+      else physics.reset();
+      snapCamera = true;
+    },
+    startChallenge(id: VehicleId = visualVehicle) {
+      if (onlineSession) return;
+      this.setVehicle(id, 'garage'); physics.dispose(); physics = createPhysics(id, undefined, true);
+      physics.reset(challengeSpawn); frameInfo.challenge = challenge.start(id);
+      challengeScene = createChallengeScene(); scene.add(challengeScene.group); challengeScene.group.visible = true; challengeScene.update(0);
+      snapCamera = true; orbit.cancel();
+      return challenge.status();
+    },
+    leaveChallenge() { this.setVehicle(visualVehicle, 'garage'); },
+    startTrail() {
+      if (challengeScene) { this.setVehicle(visualVehicle, 'trail'); return; }
+      physics.startTrail(); snapCamera = true; orbit.cancel();
+    },
+    startRace() {
+      if (challengeScene) { this.setVehicle(visualVehicle, 'race'); return; }
+      physics.startRace(); snapCamera = true; orbit.cancel();
+    },
     toggleCamera() { cameraMode = (cameraMode + 1) % 3; snapCamera = true; orbit.cancel(); return cameraMode; },
     beginCameraDrag(id: number, x: number, y: number) { if (cameraMode === 2) orbit.begin(id, x, y); },
     moveCameraDrag(id: number, x: number, y: number) { if (cameraMode === 2) orbit.move(id, x, y); },
     endCameraDrag(id: number) { orbit.end(id); },
     cancelCameraDrag() { orbit.cancel(); },
     dispose() {
-      disposeObjects([scene]);
+      if (disposed) return; disposed = true;
+      prediction.dispose();
+      disposeObjects([scene], circuitMarkers?.materials);
+      sun.shadow.map?.dispose(); sun.shadow.map = null;
+      remoteModels.clear(); snapshots.length = 0;
       renderer.dispose(); physics.dispose();
     },
   };

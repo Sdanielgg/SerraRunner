@@ -106,6 +106,7 @@ export function createEngineMixer(players: EnginePlayer[], initialSources: Recor
       slots.forEach(slot => { slot.vehicleId = null; slot.appliedRate = null; slot.configured = false; });
     },
     tick,
+    setMuted(value: boolean) { muted = value; if (muted) { fadeGain = 0; stop(); } },
     unlock() { if (!unlocked) { unlocked = true; tick(); } },
     toggle() { muted = !muted; unlocked = true; tick(0); return muted; },
     release() { frame = { ...frame, voices: frame.voices.map(voice => voice.own ? { ...voice, accelerating: false, braking: false } : voice) }; },

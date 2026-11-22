@@ -1,5 +1,5 @@
 import { Body, Box, ContactMaterial, Cylinder, GSSolver, Heightfield, Material, Plane, Quaternion, Vec3, World } from 'cannon-es';
-import { terrainHeights, trail, trailStart } from './terrain';
+import { terrainHeights, terrainHeightAt, trail, trailStart } from './terrain';
 import { TerrainVehicle } from './terrain-vehicle';
 import { vehicles, type VehicleId } from './vehicles';
 import { fitWheelToTerrain } from './wheel-terrain';
@@ -204,25 +204,30 @@ export function createPhysics(vehicleId: VehicleId = 'jeep', sharedWorld?: World
     steeringRotation.setFromAxisAngle(upAxis, steering);
     for (let i = 0; i < 2; i++) steeringRotation.mult(axleRotation, chassis.shapeOrientations[tyreShapeIndices[i]]);
     chassis.aabbNeedsUpdate = true;
-    const drive = (input.throttle ? 1 : 0) - (input.reverse ? 1 : 0);
-    const opposing = drive !== 0 && signedSpeed * drive < -0.6;
+    let drive = (input.throttle ? 1 : 0) - (input.reverse ? 1 : 0);
+    if (input.brake) drive = signedSpeed > 0.8 ? 0 : -1;
+    const braking = input.brake && signedSpeed > 0.8;
+    const opposing = !input.brake && drive !== 0 && signedSpeed * drive < -0.6;
     const limited = drive > 0 ? signedSpeed > range.forwardLimit : signedSpeed < -range.reverseLimit;
     let fuelScale = 1;
     if (competitionFuel !== null) {
       const use = drive && !input.brake ? fuelRules[vehicleId].litresPerSecond * dt : 0;
       fuelScale = competitionFuel <= 0 ? 0 : use > 0 ? Math.min(1, competitionFuel / use) : 1;
       competitionFuel = Math.max(0, competitionFuel - use);
-      const flip = (input.flipBackward ? 1 : 0) - (input.flipForward ? 1 : 0);
-      if (flip && !vehicle.wheelInfos.some(w => w.isInContact) && !bodyContact()) {
-        chassis.vectorToLocalFrame(chassis.angularVelocity, localAngular);
-        const acceleration = Math.max(-tuning.airAcceleration, Math.min(tuning.airAcceleration, (flip * economyRules.maxAirPitchSpeed - localAngular.x) / dt));
+    }
+    if (chassis.position.y - terrainHeightAt(chassis.position.x, chassis.position.z) > 2.5 && !vehicle.wheelInfos.some(w => w.isInContact) && !bodyContact()) {
+      chassis.vectorToLocalFrame(chassis.angularVelocity, localAngular);
+      const pitch = (input.flipBackward ? 1 : 0) - (input.flipForward ? 1 : 0)
+        + (input.brake ? 0.15 : 0) - (input.throttle ? 0.15 : 0);
+      if (pitch) {
+        const acceleration = Math.max(-tuning.airAcceleration, Math.min(tuning.airAcceleration, (pitch * economyRules.maxAirPitchSpeed - localAngular.x) / dt));
         chassis.quaternion.vmult(new Vec3(chassis.inertia.x * acceleration, 0, 0), airTorque); chassis.applyTorque(airTorque);
       }
     }
     for (let i = 0; i < 4; i++) {
       const engineForce = competitionFuel !== null ? gearing === 'low' ? tuning.lowForce : tuning.highForce : range.engineForce;
-      vehicle.applyEngineForce(input.brake || opposing || limited ? 0 : drive * engineForce * fuelScale, i);
-      vehicle.setBrake((input.brake ? (spec.brakeForce ?? 25) : opposing ? 35 : 0) * spec.mass / 700, i);
+      vehicle.applyEngineForce(braking || opposing || limited ? 0 : drive * engineForce * fuelScale, i);
+      vehicle.setBrake((braking ? (spec.brakeForce ?? 25) : opposing ? 35 : 0) * spec.mass / 700, i);
     }
   }
   function getTelemetry() {

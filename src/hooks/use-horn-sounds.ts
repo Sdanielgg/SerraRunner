@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { createHornMixer, HORN_TICK_MS, type HornFrame } from '@/game/horn-audio';
 
 const source = require('../../assets/audio/horn.wav');
-const options = { updateInterval: 1000, preferredForwardBufferDuration: 16, allowsExternalPlayback: false };
+const options = { updateInterval: 250, preferredForwardBufferDuration: 2, allowsExternalPlayback: false };
 export function useHornSounds(muted: boolean) {
   const own = useAudioPlayer(null, options); const a = useAudioPlayer(null, options);
   const b = useAudioPlayer(null, options); const c = useAudioPlayer(null, options);

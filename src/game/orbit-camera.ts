@@ -1,3 +1,8 @@
+export function smoothCameraYaw(current: number, target: number, dt: number, response = 2.2) {
+  const difference = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  return current + difference * (1 - Math.exp(-Math.max(0, dt) * response));
+}
+
 export function createOrbitCamera() {
   let yaw = 0.58;
   let pitch = 0.38;

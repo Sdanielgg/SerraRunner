@@ -8,7 +8,7 @@ type Props = {
   availableWidth: number; height: number; preferences: ControlPreferences; pressed: Controls;
   speed: number; reverse: boolean; showAir: boolean; disabled: boolean;
   onHold: (identifier: number, control: keyof Controls) => void; onRelease: (identifier: number) => void;
-  onHorn: () => void; hornPressed: boolean;
+  onHorn: (pressed: boolean) => void; hornPressed: boolean;
 };
 type KeyEvent = { nativeEvent: { key: string }; preventDefault: () => void; stopPropagation: () => void };
 type HoldProps = Pick<Props, 'onHold' | 'onRelease'> & { control: keyof Controls; label: string; symbol: string; width: number; height: number; active: boolean; disabled: boolean; accent?: boolean; brake?: boolean };
@@ -62,10 +62,17 @@ export default function DrivingControls(props: Props) {
   </View>;
   const pedals = <View testID="pedal-zone" style={styles.thumbZone} pointerEvents="auto">
     <View style={styles.row}>
-      {hold('reverse', '↓', 'Recuar', layout.utilityHeight)}
-      <Pressable accessibilityRole="button" accessibilityLabel="Buzinar com um tom aleatório" disabled={props.disabled} onPress={props.onHorn} style={({ pressed }) => [styles.button, { width: layout.button, height: layout.utilityHeight }, (pressed || props.hornPressed) && styles.active, props.disabled && styles.disabled]}><Text style={styles.hornLabel}>Buzina</Text></Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Manter buzina"
+        accessibilityHint="Mantém premido para prolongar o som"
+        disabled={props.disabled}
+        onPressIn={() => props.onHorn(true)}
+        onPressOut={() => props.onHorn(false)}
+        style={({ pressed }) => [styles.button, { width: layout.button, height: layout.utilityHeight }, (pressed || props.hornPressed) && styles.active, props.disabled && styles.disabled]}
+      ><Text style={styles.hornLabel}>Buzina</Text></Pressable>
     </View>
-    <View style={[styles.row, styles.pedalRow]}>{hold('brake', 'Ⅱ', 'Travar', layout.pedalHeight, false, true)}{hold('throttle', '↑', 'Acelerar', layout.pedalHeight, true)}</View>
+    <View style={[styles.row, styles.pedalRow]}>{hold('brake', 'Ⅱ', 'Travar / recuar', layout.pedalHeight, false, true)}{hold('throttle', '↑', 'Acelerar', layout.pedalHeight, true)}</View>
   </View>;
   const dock = <View testID="speed-zone" style={[styles.dock, { width: layout.stacked ? undefined : layout.dockWidth }, layout.stacked && styles.stackedDock]} pointerEvents="auto">
     <View pointerEvents="none" style={styles.speedRow}><Text style={styles.speed}>{Math.round(props.speed).toString().padStart(2, '0')}</Text><View><Text style={styles.unit}>km/h</Text>{props.reverse && <Text style={styles.range}>R</Text>}</View></View>

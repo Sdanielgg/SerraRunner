@@ -2,7 +2,7 @@ import type { ExpoWebGLRenderingContext } from 'expo-gl';
 import * as THREE from 'three';
 import { createJeep } from './jeep';
 import { Controls, createPhysics, emptyControls, type Gearing } from './physics';
-import { createOrbitCamera } from './orbit-camera';
+import { createOrbitCamera, smoothCameraYaw } from './orbit-camera';
 import { terrainHeightAt, terrainHeights, trail } from './terrain';
 import { vehicles, type VehicleId } from './vehicles';
 import { fitWheelToTerrain } from './wheel-terrain';
@@ -108,14 +108,18 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
   const target = new THREE.Vector3();
   const offset = new THREE.Vector3();
   const desired = new THREE.Vector3();
+  const cameraUp = new THREE.Vector3(0, 1, 0);
+  const cameraForward = new THREE.Vector3();
+  const cameraEuler = new THREE.Euler();
   const sunOffset = new THREE.Vector3(-16, 25, -12);
   let cameraMode = 0;
+  let cameraHeading = 0;
   const orbit = createOrbitCamera();
   let snapCamera = true;
   let width = gl.drawingBufferWidth;
   let height = gl.drawingBufferHeight;
   let disposed = false;
-  const blockedControls = { ...emptyControls(), brake: true };
+  const blockedControls = emptyControls();
   const noInputs: InputCommand[] = [];
   const frameInfo = { speed: 0, reverse: false, challenge: challenge.status(), networkInputs: noInputs };
   function liftAboveTerrain(position: THREE.Vector3) {
@@ -237,10 +241,14 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
       const position = orbit.offset(portrait ? 17 : 13);
       offset.set(position.x, position.y, position.z);
     } else {
-      offset.set(cameraMode === 0 ? 5.8 : 0, cameraMode === 0 ? 4.4 : 6.7, cameraMode === 0 ? 8.8 : 10.8);
+      cameraEuler.setFromQuaternion(jeep.body.quaternion, 'YXZ');
+      cameraHeading = snapCamera
+        ? cameraEuler.y
+        : smoothCameraYaw(cameraHeading, cameraEuler.y, dt, cameraMode === 0 ? 1.8 : 2.2);
+      offset.set(0, cameraMode === 0 ? 4.2 : 2.6, cameraMode === 0 ? 9.2 : 5.8);
       if (tunnelCamera) offset.set(0, 1.9, 6.5);
       if (portrait) offset.multiplyScalar(1.25);
-      offset.applyQuaternion(jeep.body.quaternion);
+      offset.applyAxisAngle(cameraUp, cameraHeading);
     }
     desired.copy(jeep.body.position).add(offset);
     desired.y = Math.max(desired.y, jeep.body.position.y + (cameraMode === 2 ? 1.5 : 3));
@@ -253,6 +261,11 @@ export function createScene(gl: ExpoWebGLRenderingContext, initialVehicle: Vehic
     }
     liftAboveTerrain(camera.position);
     target.copy(jeep.body.position); target.y += 0.5;
+    if (cameraMode !== 2) {
+      cameraForward.set(0, 0, -1).applyAxisAngle(cameraUp, cameraHeading);
+      const lookAhead = THREE.MathUtils.clamp(telemetry.speed / 55, 0, 1.2);
+      target.addScaledVector(cameraForward, lookAhead);
+    }
     camera.lookAt(target); snapCamera = false;
     sun.position.copy(target).add(sunOffset); sun.target.position.copy(target);
     if (draw) { renderer.render(scene, camera); gl.endFrameEXP(); }

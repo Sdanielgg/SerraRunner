@@ -49,6 +49,7 @@ export default function DrivingScene({ initialCar = 'jeep', course = 'garage', c
   // Stay silent until storage has loaded, including the first engine/horn tick.
   const muted = !settingsLoaded || !settings.sound;
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [menuTab, setMenuTab] = useState<'play' | 'controls' | 'settings'>('play');
   const toolsVisible = useRef(false);
   const [challengeStatus, setChallengeStatus] = useState(() => createChallengeRun().status());
   const challengeState = useRef(challengeStatus);
@@ -99,7 +100,11 @@ export default function DrivingScene({ initialCar = 'jeep', course = 'garage', c
     hornPulse.current = pulse;
     return () => { pulse.dispose(); hornPulse.current = null; };
   }, []);
-  const honk = useCallback(() => { unlockSound(); feedback(); hornPulse.current?.trigger(); }, [unlockSound, feedback]);
+  const honk = useCallback((pressed: boolean) => {
+    unlockSound();
+    if (pressed) { feedback(); hornPulse.current?.trigger(); }
+    else hornPulse.current?.release();
+  }, [unlockSound, feedback]);
   const selectGearing = useCallback((value: Gearing) => {
     gearingRef.current = value;
   }, []);
@@ -113,7 +118,7 @@ export default function DrivingScene({ initialCar = 'jeep', course = 'garage', c
     cancelFeedback();
     setPressedControls(touch.current);
   }, [releaseSound, silenceHorn, cancelFeedback]);
-  const openTools = useCallback(() => { clearInput(); toolsVisible.current = true; setToolsOpen(true); }, [clearInput]);
+  const openTools = useCallback(() => { clearInput(); setMenuTab('play'); toolsVisible.current = true; setToolsOpen(true); }, [clearInput]);
   const closeTools = useCallback(() => { clearInput(); toolsVisible.current = false; setToolsOpen(false); }, [clearInput]);
   useFocusEffect(useCallback(() => {
     routeActive.current = true;
@@ -278,7 +283,7 @@ export default function DrivingScene({ initialCar = 'jeep', course = 'garage', c
       if (key) unlockSound();
       if (key) { event.preventDefault(); if (!keyboard.current[key]) { keyboard.current[key] = true; updatePressed(); } }
       if (event.key === 'Escape' && !event.repeat) openTools();
-      if (event.key.toLowerCase() === 'b' && !event.repeat) { event.preventDefault(); honk(); }
+      if (event.key.toLowerCase() === 'b' && !event.repeat) { event.preventDefault(); honk(true); }
       if (event.key.toLowerCase() === 'r' && !event.repeat) reset();
       if (event.key.toLowerCase() === 'c' && !event.repeat) toggleCamera();
       if (event.key.toLowerCase() === 't' && !event.repeat) startTrail();
@@ -290,6 +295,7 @@ export default function DrivingScene({ initialCar = 'jeep', course = 'garage', c
     const keyUp = (event: KeyboardEvent) => {
       if (!routeActive.current) return;
       if (toolsVisible.current || onlineMenuVisible.current || garageVisible.current || challengeMenuVisible.current) return;
+      if (event.key.toLowerCase() === 'b') honk(false);
       const key = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
       if (key) { event.preventDefault(); keyboard.current[key] = false; updatePressed(); }
     };
@@ -415,7 +421,7 @@ export default function DrivingScene({ initialCar = 'jeep', course = 'garage', c
             ? <Pressable accessibilityRole="button" accessibilityLabel="Escolher carro para o Desafio da Serra" disabled={!ready || !!online.room} onPress={openChallengeMenu} style={[styles.action, styles.challengeAction, (!ready || !!online.room) && styles.disabled]}><Text style={styles.challengeActionText}>{online.room ? 'Nível · a solo' : 'Jogar nível'}</Text></Pressable>
             : <Pressable accessibilityRole="button" onPress={leaveChallenge} style={styles.action}><Text style={styles.actionText}>Sair do nível</Text></Pressable>)}
 
-          <Pressable accessibilityRole="button" accessibilityLabel={`Mudar câmara. Atual: ${camera + 1} de 3`} onPress={toggleCamera} style={[styles.action, compact && styles.compactAction]}><Text style={styles.actionText}>{compact ? `C${camera + 1}` : ['Câmara 1', 'Câmara 2', 'Câmara livre'][camera]}</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Mudar câmara. Atual: ${camera + 1} de 3`} onPress={toggleCamera} style={[styles.action, compact && styles.compactAction]}><Text style={styles.actionText}>{compact ? `C${camera + 1}` : ['Traseira', 'Próxima', 'Livre'][camera]}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={challengeStatus.phase === 'running' || online.tournament?.phase === 'race' ? 'Voltar ao último checkpoint com penalização de cinco segundos' : 'Repor carro'} disabled={!ready} onPress={reset} style={[styles.action, compact && styles.compactAction]}><Text style={styles.actionText}>{compact ? online.tournament?.phase === 'race' || challengeStatus.phase === 'running' ? '↺ +5 s' : '↺ Repor' : online.tournament?.phase === 'race' || challengeStatus.phase === 'running' ? '↺ Recuperar +5 s' : '↺ Recuperar'}</Text></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Abrir menu, instruções e definições" accessibilityState={{ expanded: toolsOpen }} onPress={openTools} style={[styles.action, compact && styles.compactAction, styles.menuToggle]}><Text style={styles.actionText}>☰ Menu</Text></Pressable>
         </View>
@@ -429,43 +435,69 @@ export default function DrivingScene({ initialCar = 'jeep', course = 'garage', c
       ) : null}
       <View style={styles.bottom} pointerEvents="box-none">
         <DrivingControls availableWidth={width - Math.max(insets.left, 12) - Math.max(insets.right, 12)} height={height} preferences={preferences} pressed={pressedControls}
-          speed={telemetry.speed} reverse={telemetry.reverse} showAir={!!online.room && online.tournament?.phase === 'race'} disabled={!ready || !!error}
+          speed={telemetry.speed} reverse={telemetry.reverse} showAir={true} disabled={!ready || !!error}
           onHold={holdControl} onRelease={releaseControl} onHorn={honk} hornPressed={hornPressed} />
         {!compact && <Text style={styles.hint} pointerEvents="none">{camera === 2 ? 'Arrasta na zona livre para rodar a câmara.' : Platform.OS === 'web' ? 'WASD / setas · Espaço trava · C câmara · R recuperar · Esc menu' : 'Mantém os pedais premidos · Ajusta o tamanho em Menu'}</Text>}
       </View>
     </View>
     <Modal visible={toolsOpen} transparent animationType="fade" supportedOrientations={['landscape', 'portrait']} onRequestClose={closeTools}>
       <SafeAreaView style={styles.menuBackdrop}><View style={styles.menuPanel} accessibilityViewIsModal>
-        <View style={styles.menuHeader}><Text accessibilityRole="header" style={styles.menuTitle}>Menu de condução</Text><Pressable accessibilityRole="button" onPress={closeTools} style={styles.action}><Text style={styles.actionText}>Voltar ao jogo ✕</Text></Pressable></View>
+        <View style={styles.menuHeader}>
+          <View style={styles.menuHeaderCopy}>
+            <Text style={styles.menuEyebrow}>RAMP RIVALS</Text>
+            <Text accessibilityRole="header" style={styles.menuTitle}>Menu de condução</Text>
+          </View>
+          <Pressable accessibilityRole="button" onPress={closeTools} style={styles.resumeButton}><Text style={styles.resumeButtonText}>Continuar</Text></Pressable>
+        </View>
+        <View style={styles.menuTabs}>
+          {([
+            ['play', 'Jogar'],
+            ['controls', 'Controlo'],
+            ['settings', 'Definições'],
+          ] as const).map(([tab, label]) => <Pressable key={tab} accessibilityRole="button" accessibilityState={{ selected: menuTab === tab }} onPress={() => setMenuTab(tab)} style={[styles.menuTab, menuTab === tab && styles.menuTabSelected]}><Text style={[styles.menuTabText, menuTab === tab && styles.menuTabTextSelected]}>{label}</Text></Pressable>)}
+        </View>
         <ScrollView contentContainerStyle={styles.menuContent}>
-          {(challengeStatus.phase === 'running' || online.tournament?.phase === 'race') && <Text style={styles.menuHelp}>A corrida e o cronómetro continuam enquanto o menu está aberto.</Text>}
-          <Text style={styles.menuSection}>Os teus controlos</Text>
-          <View style={styles.optionRow}>{(['normal', 'large'] as const).map(size => <Pressable key={size} accessibilityRole="button" accessibilityState={{ selected: preferences.size === size }} onPress={() => { clearInput(); updatePreferences({ ...preferences, size }); }} style={[styles.menuOption, preferences.size === size && styles.optionSelected]}><Text style={styles.actionText}>{size === 'normal' ? 'Tamanho confortável' : 'Botões maiores'}</Text></Pressable>)}</View>
-          <Pressable accessibilityRole="switch" accessibilityLabel="Trocar lados da direção e dos pedais" accessibilityState={{ checked: preferences.swapped }} onPress={() => { clearInput(); updatePreferences({ ...preferences, swapped: !preferences.swapped }); }} style={styles.menuOption}><Text style={styles.actionText}>{preferences.swapped ? '✓ Direção à direita · pedais à esquerda' : 'Direção à esquerda · pedais à direita'} · Trocar</Text></Pressable>
-          {!controlsSaved && <Text style={styles.menuHelp}>Preferências aplicadas nesta sessão. Não foi possível guardar no dispositivo.</Text>}
-          <Text style={styles.menuHelp}>Mantém premido para conduzir. Podes acelerar, virar e travar com dedos diferentes. No ar, usa Rodar atrás / Rodar frente. Com leitor de ecrã, ativa um pedal para ligar ou desligar.</Text>
-          <Text style={styles.menuSection}>Som, vibração e imagem</Text>
-          <View style={styles.optionRow}>
-            <Pressable accessibilityRole="switch" accessibilityLabel="Som dos motores e buzinas em todos os modos" accessibilityState={{ checked: settings.sound, disabled: !settingsLoaded }} disabled={!settingsLoaded} onPress={() => { unlockSound(); void updateSettings({ sound: !settings.sound }); }} style={styles.menuOption}><Text style={styles.actionText}>Som · {settings.sound ? 'Ligado' : 'Desligado'}</Text></Pressable>
-            <Pressable accessibilityRole="switch" accessibilityLabel="Vibração" accessibilityState={{ checked: settings.vibration, disabled: !settingsLoaded }} disabled={!settingsLoaded} onPress={() => { void updateSettings({ vibration: !settings.vibration }); }} style={styles.menuOption}><Text style={styles.actionText}>Vibração · {settings.vibration ? 'Ligada' : 'Desligada'}</Text></Pressable>
-            <Pressable accessibilityRole="switch" accessibilityLabel="Qualidade gráfica reduzida" accessibilityState={{ checked: settings.reducedGraphics, disabled: !settingsLoaded }} disabled={!settingsLoaded} onPress={() => { clearInput(); void updateSettings({ reducedGraphics: !settings.reducedGraphics }); }} style={styles.menuOption}><Text style={styles.actionText}>Qualidade · {settings.reducedGraphics ? 'Reduzida' : 'Normal'}</Text></Pressable>
-          </View>
-          {!settingsLoaded && <Text style={styles.menuHelp}>A carregar definições…</Text>}
-          {!settingsSaved && <Text accessibilityLiveRegion="polite" style={styles.menuHelp}>Definições aplicadas nesta sessão. Não foi possível guardar no dispositivo.</Text>}
-          <Text style={styles.menuHelp}>Qualidade reduzida desliga sombras e decoração para aliviar o dispositivo. A física e as regras mantêm-se. Vibração em recuperações, buzina e checkpoints do desafio, quando suportada pelo dispositivo.</Text>
-          <Text style={styles.menuSection}>Explorar e jogar</Text>
-          <Pressable accessibilityRole="button" onPress={() => { closeTools(); network.current?.leave(); if (router.canGoBack()) router.back(); else router.replace('/'); }} style={styles.menuOption}><Text style={styles.actionText}>Sair para o menu principal</Text></Pressable>
-          <View style={styles.optionRow}>
-            <Pressable accessibilityRole="button" disabled={!ready} onPress={() => { closeTools(); openOnlineMenu(); }} style={styles.menuOption}><Text style={styles.actionText}>{online.room ? 'Sala online / Garagem' : 'Online'}</Text></Pressable>
-            <Pressable accessibilityRole="button" disabled={vehicleSelectionDisabled} onPress={() => { closeTools(); openGarage(); }} style={[styles.menuOption, vehicleSelectionDisabled && styles.disabled]}><Text style={styles.actionText}>Escolher veículo</Text></Pressable>
-            <Pressable accessibilityRole="button" disabled={!ready || !!online.room || challengeStatus.phase !== 'idle'} onPress={() => { closeTools(); startRace(); }} style={[styles.menuOption, (!ready || !!online.room || challengeStatus.phase !== 'idle') && styles.disabled]}><Text style={styles.actionText}>Circuito</Text></Pressable>
-            <Pressable accessibilityRole="button" disabled={!ready || !!online.room || challengeStatus.phase !== 'idle'} onPress={() => { closeTools(); startTrail(); }} style={[styles.menuOption, (!ready || !!online.room || challengeStatus.phase !== 'idle') && styles.disabled]}><Text style={styles.actionText}>Todo-o-terreno</Text></Pressable>
-            <Pressable accessibilityRole="button" onPress={() => { closeTools(); silenceSound(); router.push('/account'); }} style={styles.menuOption}><Text style={styles.actionText}>{auth.session ? 'A minha conta' : 'Entrar / Registar'}</Text></Pressable>
-            <Pressable accessibilityRole="button" disabled={!ready || !!online.room} onPress={() => { closeTools(); openChallengeMenu(); }} style={[styles.menuOption, (!ready || !!online.room) && styles.disabled]}><Text style={styles.actionText}>Desafio da Serra · escolher carro</Text></Pressable>
-          </View>
-          {challengeStatus.phase !== 'idle' && <Pressable accessibilityRole="button" onPress={() => { closeTools(); leaveChallenge(); }} style={styles.menuOption}><Text style={styles.actionText}>Sair do desafio · condução livre</Text></Pressable>}
-          <Text style={styles.menuSection}>Como jogar</Text><ModeInstructions />
-          <Text style={styles.menuSection}>Teclado</Text><Text style={styles.menuHelp}>WASD / setas: conduzir · Espaço: travar · Q/E: rodar no ar · B: buzina · C: câmara · R: recuperar · N: desafio · P: circuito · T: terreno · V: veículos · M: online · Esc: menu</Text>
+          {(challengeStatus.phase === 'running' || online.tournament?.phase === 'race') && <View style={styles.statusCard}><View style={styles.statusDot}/><Text style={styles.statusText}>A corrida continua enquanto este menu está aberto.</Text></View>}
+          {menuTab === 'play' && <>
+            <Text style={styles.menuSection}>Ações rápidas</Text>
+            <View style={styles.actionGrid}>
+              <Pressable accessibilityRole="button" disabled={!ready} onPress={() => { closeTools(); openOnlineMenu(); }} style={styles.primaryAction}><Text style={styles.primaryActionIcon}>◎</Text><View style={styles.primaryActionCopy}><Text style={styles.primaryActionTitle}>{online.room ? 'Online' : 'Modo online'}</Text><Text style={styles.primaryActionMeta}>{online.room ? 'Sala e competição' : 'Criar ou entrar'}</Text></View><Text style={styles.primaryActionChevron}>›</Text></Pressable>
+              <Pressable accessibilityRole="button" disabled={vehicleSelectionDisabled} onPress={() => { closeTools(); openGarage(); }} style={[styles.primaryAction, vehicleSelectionDisabled && styles.disabled]}><Text style={styles.primaryActionIcon}>▱</Text><View style={styles.primaryActionCopy}><Text style={styles.primaryActionTitle}>Veículo</Text><Text style={styles.primaryActionMeta}>{vehicles[vehicleId].name}</Text></View><Text style={styles.primaryActionChevron}>›</Text></Pressable>
+              <Pressable accessibilityRole="button" disabled={!ready || !!online.room || challengeStatus.phase !== 'idle'} onPress={() => { closeTools(); startRace(); }} style={[styles.primaryAction, (!ready || !!online.room || challengeStatus.phase !== 'idle') && styles.disabled]}><Text style={styles.primaryActionIcon}>◉</Text><View style={styles.primaryActionCopy}><Text style={styles.primaryActionTitle}>Circuito</Text><Text style={styles.primaryActionMeta}>Corrida fechada</Text></View><Text style={styles.primaryActionChevron}>›</Text></Pressable>
+              <Pressable accessibilityRole="button" disabled={!ready || !!online.room || challengeStatus.phase !== 'idle'} onPress={() => { closeTools(); startTrail(); }} style={[styles.primaryAction, (!ready || !!online.room || challengeStatus.phase !== 'idle') && styles.disabled]}><Text style={styles.primaryActionIcon}>△</Text><View style={styles.primaryActionCopy}><Text style={styles.primaryActionTitle}>Todo-o-terreno</Text><Text style={styles.primaryActionMeta}>Condução livre</Text></View><Text style={styles.primaryActionChevron}>›</Text></Pressable>
+            </View>
+            <Text style={styles.menuSection}>Mais opções</Text>
+            <View style={styles.optionRow}>
+              <Pressable accessibilityRole="button" disabled={!ready || !!online.room} onPress={() => { closeTools(); openChallengeMenu(); }} style={[styles.menuOption, (!ready || !!online.room) && styles.disabled]}><Text style={styles.actionText}>Desafio da Serra</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => { closeTools(); silenceSound(); router.push('/account'); }} style={styles.menuOption}><Text style={styles.actionText}>{auth.session ? 'A minha conta' : 'Entrar / Registar'}</Text></Pressable>
+            </View>
+            {challengeStatus.phase !== 'idle' && <Pressable accessibilityRole="button" onPress={() => { closeTools(); leaveChallenge(); }} style={[styles.menuOption, styles.neutralAction]}><Text style={styles.actionText}>Sair do desafio · condução livre</Text></Pressable>}
+            <Pressable accessibilityRole="button" onPress={() => { closeTools(); network.current?.leave(); if (router.canGoBack()) router.back(); else router.replace('/'); }} style={[styles.menuOption, styles.dangerAction]}><Text style={styles.dangerText}>Sair para o menu principal</Text></Pressable>
+          </>}
+          {menuTab === 'controls' && <>
+            <Text style={styles.menuSection}>Tamanho dos botões</Text>
+            <View style={styles.optionRow}>{(['normal', 'large'] as const).map(size => <Pressable key={size} accessibilityRole="button" accessibilityState={{ selected: preferences.size === size }} onPress={() => { clearInput(); updatePreferences({ ...preferences, size }); }} style={[styles.menuOption, preferences.size === size && styles.optionSelected]}><Text style={styles.actionText}>{size === 'normal' ? 'Confortável' : 'Maiores'}</Text></Pressable>)}</View>
+            <Pressable accessibilityRole="switch" accessibilityLabel="Trocar lados da direção e dos pedais" accessibilityState={{ checked: preferences.swapped }} onPress={() => { clearInput(); updatePreferences({ ...preferences, swapped: !preferences.swapped }); }} style={styles.settingRow}>
+              <View style={styles.settingCopy}><Text style={styles.settingTitle}>Posição dos comandos</Text><Text style={styles.settingMeta}>{preferences.swapped ? 'Direção à direita · pedais à esquerda' : 'Direção à esquerda · pedais à direita'}</Text></View><Text style={styles.settingValue}>{preferences.swapped ? '✓' : '⇄'}</Text>
+            </Pressable>
+            {!controlsSaved && <Text style={styles.menuHelp}>Esta preferência só está ativa nesta sessão.</Text>}
+            <View style={styles.helpCard}><Text style={styles.helpTitle}>Como conduzir</Text><ModeInstructions /></View>
+            {Platform.OS === 'web' && <View style={styles.helpCard}><Text style={styles.helpTitle}>Teclado</Text><Text style={styles.menuHelp}>WASD / setas: conduzir · Espaço: travar · Q/E: rodar no ar · B: buzina · C: câmara · R: recuperar · Esc: menu</Text></View>}
+          </>}
+          {menuTab === 'settings' && <>
+            <Text style={styles.menuSection}>Experiência</Text>
+            <Pressable accessibilityRole="switch" accessibilityLabel="Som dos motores e buzinas" accessibilityState={{ checked: settings.sound, disabled: !settingsLoaded }} disabled={!settingsLoaded} onPress={() => { unlockSound(); void updateSettings({ sound: !settings.sound }); }} style={styles.settingRow}>
+              <View style={styles.settingCopy}><Text style={styles.settingTitle}>Som</Text><Text style={styles.settingMeta}>Motores e buzina</Text></View><Text style={[styles.settingValue, settings.sound && styles.settingValueActive]}>{settings.sound ? 'Ligado' : 'Desligado'}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="switch" accessibilityLabel="Vibração" accessibilityState={{ checked: settings.vibration, disabled: !settingsLoaded }} disabled={!settingsLoaded} onPress={() => { void updateSettings({ vibration: !settings.vibration }); }} style={styles.settingRow}>
+              <View style={styles.settingCopy}><Text style={styles.settingTitle}>Vibração</Text><Text style={styles.settingMeta}>Recuperação e checkpoints</Text></View><Text style={[styles.settingValue, settings.vibration && styles.settingValueActive]}>{settings.vibration ? 'Ligada' : 'Desligada'}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="switch" accessibilityLabel="Qualidade gráfica reduzida" accessibilityState={{ checked: settings.reducedGraphics, disabled: !settingsLoaded }} disabled={!settingsLoaded} onPress={() => { clearInput(); void updateSettings({ reducedGraphics: !settings.reducedGraphics }); }} style={styles.settingRow}>
+              <View style={styles.settingCopy}><Text style={styles.settingTitle}>Qualidade</Text><Text style={styles.settingMeta}>{settings.reducedGraphics ? 'Reduzida · melhor desempenho' : 'Normal · sombras e efeitos'}</Text></View><Text style={[styles.settingValue, settings.reducedGraphics && styles.settingValueActive]}>{settings.reducedGraphics ? 'Eco' : 'Normal'}</Text>
+            </Pressable>
+            {!settingsLoaded && <Text style={styles.menuHelp}>A carregar definições…</Text>}
+            {!settingsSaved && <Text accessibilityLiveRegion="polite" style={styles.menuHelp}>Aplicadas nesta sessão. Não foi possível guardar no dispositivo.</Text>}
+          </>}
         </ScrollView>
       </View></SafeAreaView>
     </Modal>
@@ -508,12 +540,44 @@ const styles = StyleSheet.create({
   hint: { alignSelf: 'center', textAlign: 'center', fontSize: 11, lineHeight: 16, color: ui.text, backgroundColor: ui.overlay, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4, maxWidth: '100%' },
   message: { alignSelf: 'center', backgroundColor: ui.surface, borderRadius: 8, padding: 20, maxWidth: 350, borderWidth: 1, borderColor: ui.border },
   messageText: { color: ui.text, textAlign: 'center', lineHeight: 20 },
-  menuBackdrop: { flex: 1, backgroundColor: '#080b0de6', justifyContent: 'center', alignItems: 'center', padding: 12 },
-  menuPanel: { width: '100%', maxWidth: 680, maxHeight: '100%', backgroundColor: ui.background, borderRadius: 16, borderWidth: 1, borderColor: ui.border, overflow: 'hidden', flexShrink: 1 },
-  menuHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: 12, borderBottomWidth: 1, borderColor: ui.border },
-  menuTitle: { color: ui.text, fontSize: 18, fontWeight: '700', flexShrink: 1 },
-  menuContent: { padding: 16, gap: 12 }, menuSection: { color: ui.text, fontSize: 15, fontWeight: '700', marginTop: 4 },
+  menuBackdrop: { flex: 1, backgroundColor: '#080b0de8', justifyContent: 'center', alignItems: 'center', padding: 12 },
+  menuPanel: { width: '100%', maxWidth: 720, maxHeight: '92%', backgroundColor: '#171b1f', borderRadius: 18, borderWidth: 1, borderColor: '#39434a', overflow: 'hidden', flexShrink: 1 },
+  menuHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderColor: '#30383d' },
+  menuHeaderCopy: { flexShrink: 1 },
+  menuEyebrow: { color: ui.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
+  menuTitle: { color: ui.text, fontSize: 21, fontWeight: '800', flexShrink: 1 },
+  resumeButton: { minHeight: 48, minWidth: 104, borderRadius: 10, backgroundColor: ui.accent, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14 },
+  resumeButtonText: { color: ui.ink, fontSize: 14, fontWeight: '800' },
+  menuTabs: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 2 },
+  menuTab: { flex: 1, minHeight: 44, borderRadius: 9, borderWidth: 1, borderColor: '#39434a', backgroundColor: '#20262a', justifyContent: 'center', alignItems: 'center' },
+  menuTabSelected: { backgroundColor: '#30383d', borderColor: ui.accent },
+  menuTabText: { color: ui.muted, fontSize: 12, fontWeight: '700' },
+  menuTabTextSelected: { color: ui.text },
+  menuContent: { padding: 16, gap: 12 },
+  menuSection: { color: ui.text, fontSize: 12, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 2 },
   optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  menuOption: { flexGrow: 1, flexBasis: '45%', minHeight: 56, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.raised, justifyContent: 'center' },
-  optionSelected: { borderColor: ui.accent, borderWidth: 2 }, menuHelp: { color: ui.muted, fontSize: 13, lineHeight: 20 },
+  menuOption: { flexGrow: 1, flexBasis: '45%', minHeight: 56, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#39434a', backgroundColor: '#242b30', justifyContent: 'center' },
+  optionSelected: { borderColor: ui.accent, borderWidth: 2, backgroundColor: '#30383d' },
+  menuHelp: { color: ui.muted, fontSize: 13, lineHeight: 20 },
+  statusCard: { flexDirection: 'row', alignItems: 'center', gap: 9, minHeight: 48, borderRadius: 10, backgroundColor: '#252e31', borderLeftWidth: 3, borderLeftColor: ui.accent, paddingHorizontal: 12 },
+  statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: ui.accent },
+  statusText: { color: ui.text, flex: 1, fontSize: 12, lineHeight: 18 },
+  actionGrid: { borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#39434a' },
+  primaryAction: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderColor: '#39434a', backgroundColor: 'transparent', paddingHorizontal: 6, paddingVertical: 8 },
+  primaryActionIcon: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: '#465159', color: ui.accent, fontSize: 18, lineHeight: 36, textAlign: 'center', fontWeight: '800' },
+  primaryActionCopy: { flex: 1 },
+  primaryActionTitle: { color: ui.text, fontSize: 15, fontWeight: '800' },
+  primaryActionMeta: { color: ui.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  primaryActionChevron: { color: ui.muted, fontSize: 24, fontWeight: '600' },
+  neutralAction: { borderColor: '#465159' },
+  dangerAction: { borderColor: '#70423e', backgroundColor: '#302423' },
+  dangerText: { color: '#f3b9ad', fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  settingRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 12, borderWidth: 1, borderColor: '#39434a', backgroundColor: '#242b30', paddingHorizontal: 14, paddingVertical: 10 },
+  settingCopy: { flex: 1 },
+  settingTitle: { color: ui.text, fontSize: 14, fontWeight: '800' },
+  settingMeta: { color: ui.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  settingValue: { minWidth: 58, textAlign: 'center', color: ui.muted, fontSize: 12, fontWeight: '800', backgroundColor: '#171b1f', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 8 },
+  settingValueActive: { color: ui.ink, backgroundColor: ui.accent },
+  helpCard: { gap: 6, borderRadius: 12, borderWidth: 1, borderColor: '#39434a', backgroundColor: '#20262a', padding: 14 },
+  helpTitle: { color: ui.text, fontSize: 13, fontWeight: '800' },
 });

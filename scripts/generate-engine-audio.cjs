@@ -37,7 +37,10 @@ for (const [id, profile] of Object.entries(profiles)) {
 const horn = new Float64Array(frames); let hornPeak = 0;
 for (let i = 0; i < frames; i++) {
   const phase = Math.PI * 2 * i / sampleRate;
-  const value = Math.tanh(0.85 * (Math.sin(phase * 360) + 0.55 * Math.sin(phase * 480) + 0.18 * Math.sin(phase * 720) + 0.12 * Math.sin(phase * 960)));
+  const edgeFrames = sampleRate * 0.05;
+  const edge = i < edgeFrames ? i / edgeFrames : i >= frames - edgeFrames ? (frames - 1 - i) / edgeFrames : 1;
+  const envelope = Math.max(0, Math.min(1, edge));
+  const value = envelope * Math.tanh(0.85 * (Math.sin(phase * 360) + 0.55 * Math.sin(phase * 480) + 0.18 * Math.sin(phase * 720) + 0.12 * Math.sin(phase * 960)));
   horn[i] = value; hornPeak = Math.max(hornPeak, Math.abs(value));
 }
 writeClip('horn.wav', horn, hornPeak);

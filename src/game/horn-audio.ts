@@ -6,7 +6,8 @@ export const HORN_TONES = ['auto', 'low', 'mid', 'high'] as const;
 export type HornTone = typeof HORN_TONES[number];
 export const HORN_TICK_MS = 20;
 export const HORN_DISTANCE = 80;
-export const HORN_PULSE_MS = 180;
+export const HORN_SHORT_MS = 280;
+export const HORN_LONG_MS = 900;
 export type HornVoice = { id: string; vehicleId: VehicleId; tone: HornTone; honking: boolean; distance: number; own: boolean };
 export type HornFrame = { active: boolean; voices: HornVoice[] };
 
@@ -18,29 +19,27 @@ export function hornRate(vehicleId: VehicleId, tone: HornTone) {
   const frequency = tone === 'auto' ? automatic[vehicleId] : { low: 260, mid: 380, high: 520 }[tone];
   return frequency / 360;
 }
-export function randomHornTone(previous: HornTone, random = Math.random): HornTone {
-  const choices = (['low', 'mid', 'high'] as const).filter(tone => tone !== previous);
-  return choices[Math.floor(random() * choices.length)];
-}
-
-// A tap schedules its own release, independently of render frames. A newer tap
-// replaces the release timer and always changes pitch, even during a quick run.
-export function createHornPulse(onChange: (active: boolean, tone: HornTone) => void, random = Math.random,
-  schedule: (callback: () => void) => () => void = callback => {
-    const timer = setTimeout(callback, HORN_PULSE_MS); return () => clearTimeout(timer);
+// Duration, not randomness, determines the tone. A short press is medium,
+// longer presses progress through low and high tones.
+export function createHornPulse(onChange: (active: boolean, tone: HornTone) => void,
+  schedule: (delay: number, callback: () => void) => (() => void) = (delay, callback) => {
+    const timer = setTimeout(callback, delay); return () => clearTimeout(timer);
   }) {
   let active = false; let tone: HornTone = 'auto'; let revision = 0;
-  let cancel: (() => void) | null = null;
-  function clear() { revision++; cancel?.(); cancel = null; active = false; }
+  let cancellations: (() => void)[] = [];
+  function clear() { revision++; cancellations.forEach(cancel => cancel()); cancellations = []; active = false; }
   return {
     get active() { return active; }, get tone() { return tone; },
     trigger() {
-      clear(); const token = revision;
-      tone = randomHornTone(tone, random); active = true; onChange(true, tone);
-      cancel = schedule(() => {
+      clear(); const token = revision; tone = 'mid'; active = true; onChange(true, tone);
+      cancellations.push(schedule(HORN_SHORT_MS, () => {
         if (revision !== token) return;
-        active = false; cancel = null; onChange(false, tone);
-      });
+        tone = 'low'; onChange(true, tone);
+      }));
+      cancellations.push(schedule(HORN_LONG_MS, () => {
+        if (revision !== token) return;
+        tone = 'high'; onChange(true, tone);
+      }));
     },
     release() { clear(); onChange(false, tone); },
     dispose: clear,
@@ -80,7 +79,7 @@ export function createHornMixer(players: EnginePlayer[]) {
       const target = audible && voice?.honking && distance < HORN_DISTANCE
         ? (voice.own ? 0.52 : 0.38 / (1 + (distance / 18) ** 2)) : 0;
       if (!slot.player.isLoaded) { slot.gain = 0; if (!target) slot.id = null; continue; }
-      slot.gain += (target - slot.gain) * (1 - Math.exp(-dt / (target > slot.gain ? 0.025 : 0.045)));
+      slot.gain += (target - slot.gain) * (1 - Math.exp(-dt / (target > slot.gain ? 0.04 : 0.08)));
       if (target === 0 && slot.gain < 0.001) { stop(slot); continue; }
       if (voice && target > 0) {
         const rate = hornRate(voice.vehicleId, voice.tone);

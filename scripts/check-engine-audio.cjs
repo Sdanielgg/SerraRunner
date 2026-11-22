@@ -158,23 +158,20 @@ webMixer.dispose(); webPlayer.dispose();
 assert.equal(nodes[0].stops, 1, 'The source is released when the audio backend is disposed');
 console.log('Web audio checks passed: continuous buffer playback, smooth pitch/gain, blur/throttle release, fade-out, phase-preserving resume, disposal.');
 
-const { createHornMixer, createHornPulse, randomHornTone, hornRate, nearbyHorns, isHornTone } = load('horn-audio');
-assert.deepEqual([0, 0.4, 0.99].map(value => randomHornTone('auto', () => value)), ['low', 'mid', 'high'], 'Random horn can choose every pitch');
-for (const previous of ['low', 'mid', 'high']) for (const sample of [0, 0.5, 0.999]) {
-  assert.notEqual(randomHornTone(previous, () => sample), previous, 'Consecutive taps always change pitch');
-}
+const { createHornMixer, createHornPulse, hornRate, nearbyHorns, isHornTone } = load('horn-audio');
 const pulseEvents = []; const pulseTimers = [];
-const pulse = createHornPulse((active, tone) => pulseEvents.push({ active, tone }), () => 0, callback => {
-  const timer = { callback, cancelled: false }; pulseTimers.push(timer); return () => { timer.cancelled = true; };
+const pulse = createHornPulse((active, tone) => pulseEvents.push({ active, tone }), (delay, callback) => {
+  const timer = { delay, callback, cancelled: false }; pulseTimers.push(timer); return () => { timer.cancelled = true; };
 });
-pulse.trigger(); assert(pulse.active && pulse.tone === 'low', 'A tap immediately starts a random short horn');
-pulse.trigger(); assert(pulse.active && pulse.tone === 'mid', 'A second fast tap immediately plays another pitch');
-assert(pulseTimers[0].cancelled, 'A fast tap replaces the previous release timer');
-pulseTimers[0].callback(); assert(pulse.active, 'An old queued timer cannot cut off the latest tap');
-pulseTimers[1].callback(); assert(!pulse.active && pulseEvents.at(-1).active === false, 'The note stops automatically without holding or releasing the button');
-pulse.trigger(); pulse.release(); assert(!pulse.active && pulseTimers[2].cancelled, 'Blur or menus cancel a pending horn pulse');
-pulse.trigger(); const eventsBeforeDispose = pulseEvents.length; pulse.dispose(); pulseTimers[3].callback();
-assert(!pulse.active && pulseTimers[3].cancelled && pulseEvents.length === eventsBeforeDispose, 'Unmount cancels timers without late state updates');
+pulse.trigger(); assert(pulse.active && pulse.tone === 'mid', 'A press immediately starts the medium horn');
+assert.equal(pulseTimers[0].delay, 280, 'Short duration threshold is configured');
+assert.equal(pulseTimers[1].delay, 900, 'Long duration threshold is configured');
+pulseTimers[0].callback(); assert(pulse.active && pulse.tone === 'low', 'A longer press changes to a low tone');
+pulseTimers[1].callback(); assert(pulse.active && pulse.tone === 'high', 'A sustained press changes to a high tone');
+pulse.release(); assert(!pulse.active && pulseEvents.at(-1).active === false, 'Releasing stops the horn');
+assert(pulseTimers.every(timer => timer.cancelled), 'Release cancels pending duration changes');
+pulse.trigger(); const eventsBeforeDispose = pulseEvents.length; pulse.dispose(); pulseTimers.at(-2).callback();
+assert(!pulse.active && pulseEvents.length === eventsBeforeDispose, 'Dispose cancels late duration updates');
 const hornPlayers = Array.from({ length: 4 }, () => ({
   loop: false, shouldCorrectPitch: true, volume: 0, playing: false, isLoaded: true, rate: 1,
   plays: 0, pauses: 0, replacements: 0,
@@ -237,4 +234,4 @@ assert.equal(nodes.length, nodeCount + 1, 'Web horn pitch changes use one buffer
 assert(gains[gainCount].gain.targets.every(target => target.timeConstant === 0.012), 'Web horn uses its shorter audio-clock attack ramp');
 assert(nodes[nodeCount].playbackRate.targets.some(target => target.timeConstant === 0.025), 'Web horn pitch transitions are smoothed');
 webHorns.dispose(); webHornPlayer.dispose();
-console.log('Horn checks passed: random tap pitches, rapid retrigger/automatic release, timer cleanup, cached loops, fades, four voices, mute/focus, distance, continuous web playback.');
+console.log('Horn checks passed: duration-based tones, press/release cleanup, cached loops, fades, four voices, mute/focus, distance, continuous web playback.');

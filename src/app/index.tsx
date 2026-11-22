@@ -76,7 +76,7 @@ export default function MainMenu() {
       <Button primary large={large} title="⚑  JOGAR" onPress={()=>play()}/>
       <Pressable accessibilityRole="button" onPress={()=>setPanel('course')} style={s.selector}><Text style={s.kicker}>PERCURSO</Text><Text numberOfLines={1} style={s.value}>{courses[course]}</Text></Pressable>
     </View>
-    {panel === 'car' && <MenuGarage car={car} onChange={setCar} onClose={() => setPanel(null)}/>}
+    {panel === 'car' && <MenuGarage car={car} balance={balance} onChange={setCar} onClose={() => setPanel(null)}/>}
     <Modal visible={panel!==null && panel!=='car'} transparent supportedOrientations={['portrait','landscape']} onRequestClose={()=>setPanel(null)}>
       <SafeAreaView style={s.backdrop}><View style={s.sheet}><View style={s.sheetHead}><Text accessibilityRole="header" style={s.heading}>{panel && panels[panel]}</Text><Button title="Fechar" onPress={()=>setPanel(null)}/></View>
         <ScrollView contentContainerStyle={s.options}>

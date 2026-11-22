@@ -97,13 +97,13 @@ async function run() {
     await waitFor(() => own().horn && hornPeer?.players.find(player => player.id === first.sessionId)?.horn, 'horn reaches another client');
     assert.equal(hornPeer.players.find(player => player.id === first.sessionId).hornTone, 'low', 'Selected horn tone is synchronized');
     await waitFor(() => !own().horn, 'stale horn input is released automatically', 2000);
-    const hornPulse = createHornPulse((active, tone) => first.send('input', { seq: ++seq, controls: emptyControls(), gearing: 'high', horn: active, hornTone: tone }), () => 0);
+    const hornPulse = createHornPulse((active, tone) => first.send('input', { seq: ++seq, controls: emptyControls(), gearing: 'high', horn: active, hornTone: tone }));
     try {
       hornPulse.trigger();
-      await waitFor(() => hornPeer.players.find(player => player.id === first.sessionId)?.hornTone === 'low' && hornPeer.players.find(player => player.id === first.sessionId)?.horn, 'first random horn tap reaches peers');
-      hornPulse.trigger();
-      await waitFor(() => hornPeer.players.find(player => player.id === first.sessionId)?.hornTone === 'mid' && hornPeer.players.find(player => player.id === first.sessionId)?.horn, 'rapid second tap changes the pitch for peers');
-      await waitFor(() => !own().horn, 'short horn pulse ends automatically');
+      await waitFor(() => hornPeer.players.find(player => player.id === first.sessionId)?.hornTone === 'mid' && hornPeer.players.find(player => player.id === first.sessionId)?.horn, 'held horn starts at medium tone');
+      await waitFor(() => hornPeer.players.find(player => player.id === first.sessionId)?.hornTone === 'low' && hornPeer.players.find(player => player.id === first.sessionId)?.horn, 'longer hold changes to low tone');
+      hornPulse.release();
+      await waitFor(() => !own().horn, 'released horn stops');
     } finally { hornPulse.dispose(); }
     const start = { ...own().body.position };
     inputTimer = setInterval(() => first.send('input', { seq: ++seq, controls: { ...emptyControls(), throttle: true }, gearing: 'high', position: { x: 99999, y: 99999, z: 99999 } }), 40);

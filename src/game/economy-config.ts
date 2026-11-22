@@ -5,7 +5,7 @@ export const economyRules = {
   coinAmount: 10, fuelPickupLitres: 5, pickupRadius: 2.3, pickupMaxStep: 3,
   recoveryPickupDelaySeconds: 0.5, rewardPerRotation: 25, maxRotations: 8,
   rotationLandingTolerance: 0.1,
-  airAngularAcceleration: 30, maxAirPitchSpeed: 10,
+  airAngularAcceleration: 18, maxAirPitchSpeed: 7,
   groundArmSeconds: 0.18, minAirSeconds: 0.3, minClearance: 0.35, maxAirSeconds: 8,
   landingUp: 0.8, stableUp: 0.93, maxLandingImpact: 8,
   stableAngularSpeed: 1.2, stableVerticalSpeed: 1, stableWheels: 3,

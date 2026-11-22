@@ -56,9 +56,11 @@ car.vehicle.wheelInfos.forEach((wheel, i) => {
   assert(Math.abs(wheel.rotation - wheelAngles[i]) > 1, 'Each wheel keeps rolling without throttle');
 });
 const brake = simulate(car, 2, { brake: true });
-assert(brake.speed < 1, 'Brakes stop the vehicle');
+assert(brake.speed < 10, 'Brake stops forward movement');
+const brakeReverse = simulate(car, 2, { brake: true });
+assert(brakeReverse.reverse && brakeReverse.speed > 5, 'Holding brake past the stop makes the vehicle reverse');
 const reverse = simulate(car, 3, { reverse: true });
-assert(reverse.reverse && reverse.speed > 5, 'Reverse engages after braking');
+assert(reverse.reverse && reverse.speed > 5, 'Dedicated reverse still engages');
 car.reset(); simulate(car, 2);
 const initialRotation = car.chassis.quaternion.clone();
 simulate(car, 3, { throttle: true, left: true });
@@ -116,7 +118,12 @@ assert(trailCar.chassis.position.z < -25, 'The jeep advances through the ramp');
 trailCar.reset(); assert.equal(trailCar.chassis.position.x, 0, 'Reset returns from the trail to the garage');
 console.log('Terrain checks passed: mesh/collider agreement, safe spawn, Low ramp climb, reset.');
 
-const orbit = loadGameModule('orbit-camera').createOrbitCamera();
+const orbitModule = loadGameModule('orbit-camera');
+const orbit = orbitModule.createOrbitCamera();
+const delayedYaw = orbitModule.smoothCameraYaw(0, Math.PI / 2, 1 / 60, 2);
+assert(delayedYaw > 0 && delayedYaw < Math.PI / 2, 'Fixed cameras ease towards vehicle heading');
+const wrappedYaw = orbitModule.smoothCameraYaw(3.0, -3.0, 1 / 60, 2);
+assert(wrappedYaw > 2.8 && wrappedYaw < 3.2, 'Camera heading follows the shortest rotation across the yaw boundary');
 const initialView = orbit.offset(13);
 orbit.begin(1, 100, 100); orbit.move(2, 300, 300);
 assert.deepEqual(orbit.offset(13), initialView, 'Another finger cannot move the camera');
@@ -143,8 +150,8 @@ for (const spec of vehicleList) {
   assert(Math.abs(clearance - groundClearance(spec)) < 0.06, `${spec.name}: garage clearance matches the settled physics`);
   const topSpeed = simulate(testCar, 6, { throttle: true }).speed;
   assert(Math.abs(topSpeed - spec.high.forwardLimit * 3.6) < 2, `${spec.name}: reaches its own High speed limit`);
-  const stopped = simulate(testCar, 4, { brake: true });
-  assert(stopped.speed < 1, `${spec.name}: softened brakes still stop the vehicle`);
+  const stopped = simulate(testCar, 1, { brake: true });
+  assert(stopped.speed < topSpeed - 5, `${spec.name}: brakes reduce forward movement`);
   testCar.reset(); simulate(testCar, 2);
   const lowTopSpeed = simulate(testCar, 5, { throttle: true }, 'low').speed;
   assert(Math.abs(lowTopSpeed - spec.low.forwardLimit * 3.6) < 2, `${spec.name}: Low uses its own speed limit`);
@@ -192,6 +199,20 @@ for (const airborne of [airborneGT3, airborneJeep]) {
   simulate(airborne, 1);
 }
 assert(Math.abs(airborneGT3.chassis.velocity.y - airborneJeep.chassis.velocity.y) < 1e-6, 'Airborne GT3 falls under gravity without artificial downforce');
+const pitchCar = createPhysics();
+pitchCar.reset({ x: 0, y: 12, z: 0, yaw: 0 });
+pitchCar.chassis.velocity.set(0, 2, -20);
+simulate(pitchCar, 0.5, { flipBackward: true });
+assert(pitchCar.chassis.angularVelocity.length() > 0.05, 'Flipping applies pitch torque while airborne in normal modes');
+pitchCar.reset({ x: 0, y: 12, z: 0, yaw: 0 });
+pitchCar.chassis.velocity.set(0, 2, -20);
+simulate(pitchCar, 0.5, { throttle: true });
+assert(pitchCar.chassis.angularVelocity.length() > 0.05, 'Accelerator applies forward pitch while airborne');
+pitchCar.reset({ x: 0, y: 12, z: 0, yaw: 0 });
+pitchCar.chassis.velocity.set(0, 2, -20);
+simulate(pitchCar, 0.5, { brake: true });
+assert(pitchCar.chassis.angularVelocity.length() > 0.05, 'Brake applies backward pitch while airborne');
+pitchCar.dispose();
 airborneGT3.dispose(); airborneJeep.dispose();
 console.log('GT3 checks passed: circuit speed/clearance tradeoff, grounded downforce, frame-rate consistency, airborne behaviour, callback cleanup.');
 

@@ -9,3 +9,7 @@ controlled in game; the base pulse is 30 Hz for Crawler, 40 Hz for Jeep and
 55 Hz for Rally. Keep these WAV files in the repository so a fresh clone can
 build and play without generating assets first. Sounds are cached on the device
 before playback, and longer clips reduce the frequency of native loop transitions.
+
+The horn loop has 50 ms fades at its clip boundaries to avoid clicks when
+playback starts, pauses or advances. Its pitch changes deterministically with
+press duration instead of randomizing between taps.
